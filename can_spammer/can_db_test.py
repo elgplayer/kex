@@ -15,23 +15,31 @@ import random
 
 def random_data(message):
     random_values = {}
-    for signal in message.signals:
+    for k,signal in enumerate(message.signals):
         try:
             random_values[signal.name] = random.uniform(float(signal.minimum), float(signal.maximum))
-        except:
-            random_values = random.randint(0, 1)
+        except Exception as e:
+            #print(f"Error at: {k} - {signal}")
+            random_values = 0 #random.randint(0, 1)
             pass
 
     return message.encode(random_values)
-
 dbc_file = 'can1.dbc'
 db = cantools.database.load_file(dbc_file)
 messages = db.messages
 
-for message in messages:
-    data = 0#random_data(message)
-    message = can.Message(arbitration_id=message.frame_id, data=data, is_extended_id=False)
-    #send_message(bus, message)
-    #time.sleep(0.1)
-    print(message)
+for k,message in enumerate(messages):
+    try:
+        data = random_data(message)
+        message = can.Message(arbitration_id=message.frame_id, data=data, is_extended_id=False)
+        #send_message(bus, message)
+        #time.sleep(0.1)
+        print(message)
+    except Exception as e:
+        print(f"Error at: {k} - {message} | {e}")
+        continue
+
 # %%
+
+
+

@@ -75,9 +75,9 @@ void Error_Handler(void);
 #define ts_off_GPIO_Port GPIOD
 #define close_airs_Pin GPIO_PIN_3
 #define close_airs_GPIO_Port GPIOB
-#define potentiometer GPIO_PIN
 #define reset_Pin GPIO_PIN_4
 #define reset_GPIO_Port GPIOB
+
 /* USER CODE BEGIN Private defines */
 
 /* USER CODE END Private defines */

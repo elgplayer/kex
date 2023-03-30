@@ -8,7 +8,7 @@
 #include "can.h"
 #include "kthfspe_can.h"
 #include "can_can1.h"
-#include "can_hal_can1.h"
+//#include "can_hal_can1.h"
  
 extern CAN_HandleTypeDef* _can1;
  
