@@ -15,15 +15,36 @@ import random
 
 def random_data(message):
     random_values = {}
-    for k,signal in enumerate(message.signals):
-        try:
-            random_values[signal.name] = random.uniform(float(signal.minimum), float(signal.maximum))
-        except Exception as e:
-            #print(f"Error at: {k} - {signal}")
-            random_values = 0 #random.randint(0, 1)
-            pass
+    for signal in message.signals:
+        min_value = float(signal.minimum) if signal.minimum is not None else 0
+        max_value = float(signal.maximum) if signal.maximum is not None else 1
 
-    return message.encode(random_values)
+        if signal.is_signed:
+            min_value = max(min_value, -2**(signal.length-1))
+            max_value = min(max_value, 2**(signal.length-1) - 1)
+
+        
+
+        if signal.is_float:
+            value = random.uniform(min_value, max_value)
+        else:
+            value = random.randint(int(min_value), int(max_value))
+            
+        print(min_value, " | ", max_value, "||", value)
+
+        random_values[signal.name] = value
+
+    # Ensure all signals in the message are included in the dictionary
+    for signal in message.signals:
+        if signal.name not in random_values:
+            random_values[signal.name] = 0
+
+  
+    return random_values
+
+
+
+
 dbc_file = 'can1.dbc'
 db = cantools.database.load_file(dbc_file)
 messages = db.messages
@@ -31,13 +52,14 @@ messages = db.messages
 for k,message in enumerate(messages):
     try:
         data = random_data(message)
-        message = can.Message(arbitration_id=message.frame_id, data=data, is_extended_id=False)
-        #send_message(bus, message)
-        #time.sleep(0.1)
-        print(message)
+        encoded_data = message.encode(data)  # Encode the data
+        message = can.Message(arbitration_id=message.frame_id, data=encoded_data, is_extended_id=False)
     except Exception as e:
+        data = 0
         print(f"Error at: {k} - {message} | {e}")
         continue
+    
+    #print(message)
 
 # %%
 
