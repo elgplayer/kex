@@ -53,10 +53,11 @@ def main():
     while True:
         
         random_signal_data = generate_random_data_for_all_signals(db1)
+        
         for k,x in enumerate(random_signal_data):
             
             selected_frame = random_signal_data[x]
-            
+            frame_id = selected_frame['frame_id']
             
             try:
                 data = [min(max(value, 0), 255) for value in selected_frame['data']]
