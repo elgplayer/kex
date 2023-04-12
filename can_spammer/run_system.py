@@ -7,30 +7,59 @@ import json
 from io import StringIO
 import decimal
 import pickle
-from ctypes import c_long
 import threading
-from tqdm import tqdm
+import os
+from datetime import datetime
+
 
 import cantools
+from tqdm import tqdm
 from canlib import canlib, Frame
-
+import numpy as np
 
 
 received_data = []
 received_data_timestamps = []
 recived_data_dict = {}
 shutdown_flag = False
+global start_time
+start_time = None
 
-msg_stats = {'rx': 0, 'tx': 0}
+msg_stats = {
+    'rx': 0, 
+    'tx': 0
+}
+
+
+
 ##########
 # CONFIG #
 ##########
 virtual = True
 verbose = False
 TX_sampletime = 0.01
-TIMEOUT = 10
+TIMEOUT = 3
 progress_bar_steps = 100
 
+################################################################################
+
+
+def generate_step_response(step_t, overshoot, oscillation, t):
+    # Calculate the damped natural frequency and damping ratio
+    wn = np.pi / (step_t * np.sqrt(1 - overshoot**2))
+    zeta = -np.log(overshoot) / np.sqrt(np.pi**2 + np.log(overshoot)**2)
+
+    # Calculate the step response
+    response = 1 - np.exp(-zeta * wn * t) * (np.cos(wn * np.sqrt(1 - zeta**2) * t) + (zeta / np.sqrt(1 - zeta**2)) * np.sin(wn * np.sqrt(1 - zeta**2) * t))
+
+    # TODO: something with oscillation....
+
+    return response
+
+# Input parameters
+step_time = 1.0
+overshoot = 0.2
+oscillation = 0.1
 
 
 def send_virtual_can_message(ch, frame_id, data):
@@ -42,6 +71,7 @@ def send_virtual_can_message(ch, frame_id, data):
 def send_messages(ch, db, calculated_messages):
     iteration = 0
     global shutdown_flag
+    global start_time
     # Keep sending messages until the shutdown_flag is set
     while not shutdown_flag:
         
@@ -57,12 +87,26 @@ def send_messages(ch, db, calculated_messages):
         # Iterate through the messages and send them
         for k, x in enumerate(random_signal_data):
             
+            if start_time == None:
+                
+                start_time = time.time()
+            
             frame_id = random_signal_data[x]['frame_id']
             message_name = random_signal_data[x]['name']
             encoded_data = random_signal_data[x]['encoded_data']
         
             if verbose:
                 print(f"Sending CAN message: {message_name} ID = {frame_id}")
+            
+            
+            if message_name == 'dv_driving_dynamics_1':
+                time_now = time.time() - start_time 
+                random_signal_data[x]['data']['steering_angle_actual'] = generate_step_response(step_time, overshoot, oscillation, time_now) * 50
+                random_signal_data[x]['data']['steering_angle_target'] = 57
+                message = db.get_message_by_name('dv_driving_dynamics_1')
+                # print("hej")
+                encoded_data = message.encode(random_signal_data[x]['data'], scaling=False) 
+                
             send_virtual_can_message(ch, frame_id, encoded_data)
             msg_stats['tx'] += 1
 
@@ -109,6 +153,7 @@ def receive_messages(ch, db):
 
                 if verbose:
                     print(f"Received CAN message with ID: {rx_id} and data: {decoded_data} | {message.name}")
+                
                 received_data.append({'message_name': message.name, 'data': result})
                 received_data_timestamps.append(time.time())
    
@@ -161,7 +206,55 @@ def main():
     send_thread.join()
     receive_thread.join()
 
+    # nice printout
     pprint.pprint(msg_stats)
+    
+    CAN_RESPONSES_path = 'output/CAN_RESPONSES'
+    if not os.path.exists(CAN_RESPONSES_path):
+        os.makedirs(CAN_RESPONSES_path, exist_ok=True)
+        print(f"Creating diretory: {CAN_RESPONSES_path}")
+
+    # Saving data!
+    CAN_RESPONSES_info = []
+    CAN_RESPONSES_info_path = 'output/CAN_response_info.json'
+    if not os.path.exists(CAN_RESPONSES_info_path):
+        CAN_RESPONSES_info = []
+        print("Creating new CAN response file!")
+    else:
+        with open(CAN_RESPONSES_info_path, 'r') as f:
+            try:
+                CAN_RESPONSES_info = json.load(f)
+            except Exception as e:
+                print(f"error: {e}")
+                CAN_RESPONSES_info = []
+            
+            print("Reading exisitng CAN response file!")
+    
+    datetime_now = datetime.now()
+    formatted_date = datetime_now.strftime("%Y_%m_%d__%H_%M_%S")
+    CAN_response = f'{CAN_RESPONSES_path}/CAN_RX_{formatted_date}.pkl'
+    
+    CAN_RESPONSES_info.append({
+        'date': datetime_now.strftime("%Y:%m:%d %H:%M:%S"),
+        'formatted_date': formatted_date,
+        'rx_msg': msg_stats['rx'],
+        'tx_msg': msg_stats['tx'],
+        'priority': 0.69, # placeholder,
+        'TX_sampletime': TX_sampletime,
+        'TIMEOUT': TIMEOUT,
+        'step_time': step_time,
+        'overshoot': overshoot,
+        'oscillation': oscillation,
+        'CAN_filename': f'CAN_RX_{formatted_date}.pkl'
+    })
+    
+    
+    with open(CAN_RESPONSES_info_path, 'w', encoding='utf-8') as f:
+        f.write(json.dumps(CAN_RESPONSES_info, indent=4))
+    
+    
+    with open(CAN_response, 'wb') as f:
+        pickle.dump(recived_data_dict, f)
     
     ch_send.busOff()
     ch_receive.busOff()
