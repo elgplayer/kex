@@ -32,7 +32,6 @@ def analyze_system_response(target, output_data, time_data):
     # Step 1: Calculate step time
     step_time_10_idx = np.argmax(output_data >= 0.1 * target)
     step_time_10 = time_data[step_time_10_idx]
-    
     step_time_90_idx = np.argmax(output_data >= 0.9 * target)
     step_time_90 = time_data[step_time_90_idx]
 
@@ -70,31 +69,52 @@ def gather_data(message_of_interest):
             
     return x,y
 
+
+def convert_to_angle(input_array):
+    input_min = 0
+    input_max = 2024
+    output_min = -90.0
+    output_max = 90.0
+
+    output_array = ((input_array - input_min) / (input_max - input_min)) * (output_max - output_min) + output_min
+    return output_array
+
 #######################
 ### PLOT CONFIG #######
 #######################
 
-plot_step_time = False
-plot_overshoot = True
-plot_target    = False
-print_stats    = True
+plot_system_response = True
+plot_step_time       = False
+plot_overshoot       = False
+plot_target          = False
+print_stats          = False
 
 ######################
 ######################
 ######################
 
-message_of_interest = 'dv_driving_dynamics_1'
-t, data = gather_data(message_of_interest)
-t = np.array(t) # Convert to numpy arrya
+# Get the steering position from the DCU
+message_of_interest = 'dcu_status_steering_brake'
+t_dcu_status_steering_brake, data_dcu_status_steering_brake = gather_data(message_of_interest)
+t = np.array(t_dcu_status_steering_brake) # Convert to numpy arrya
 t = t - t[0] # Make the time reference start from the first message
 
-steering_actual = np.array(data['steering_angle_actual'])
-steering_target = data['steering_angle_actual'][-1] # hmm
+# We want to see when the step is
+message_of_interest = 'dv_driving_dynamics_1'
+t_dv_driving_dynamics_1, data_dv_driving_dynamics_1 = gather_data(message_of_interest)
+t_dv_driving_dynamics_1 = np.array(t_dv_driving_dynamics_1) # Convert to numpy arrya
+t_dv_driving_dynamics_1 = t_dv_driving_dynamics_1 - t[0] # Make the time reference start from the first message
 
-step_time, overshoot, oscillation = analyze_system_response(steering_target, steering_actual, t)
 
-# Plot the step response
-plt.plot(t, data['steering_angle_actual'], label='Response')
+steering_actual = convert_to_angle(np.array(data_dcu_status_steering_brake['steering_angle_2']))
+steering_target = convert_to_angle(np.array(data_dv_driving_dynamics_1['steering_angle_target']))
+
+if plot_step_time or plot_overshoot or plot_target or print_stats:
+    step_time, overshoot, oscillation = analyze_system_response(steering_target, steering_actual, t)
+
+if plot_system_response:
+    # Plot the step response
+    plt.plot(t, steering_actual, label='Response')
 
 # Plot the target value
 if plot_target:
@@ -107,26 +127,28 @@ if plot_step_time:
 
 # Plot the overshoot
 if plot_overshoot:
-    max_value = max(data['steering_angle_actual'])
-    overshoot_time = t[np.argmax(data['steering_angle_actual'])]
+    max_value = max(steering_actual)
+    overshoot_time = t[np.argmax(steering_actual)]
     plt.plot(overshoot_time, max_value, 'bo', label='Overshoot')
     plt.axhline(max_value, linestyle=':', color='b')
 
-plt.xlabel('Time (s)')
-plt.ylabel('Response')
-plt.title(f'Step Response with Overshoot')
-plt.legend()
-plt.grid()
-plt.show()
+# Labels and stuff
+if plot_system_response:
+    plt.xlabel('Time (s)')
+    plt.ylabel('Response')
+    plt.title(f'Step Response with Overshoot')
+    plt.legend()
+    plt.grid()
+    plt.show()
 
-stats = {
-    'overshoot': round(max_value / steering_target,4),
-    'step_time': round(step_time['step_time'],4),
-    'Init value': steering_actual[0],
-    'target'   : steering_target,
-    'Nr of Data Points': len(t)
-}
-
+# Nice stats
 if print_stats:
+    stats = {
+        'overshoot': round(max_value / steering_target,4),
+        'step_time': round(step_time['step_time'],4),
+        'Init value': steering_actual[0],
+        'target'   : steering_target,
+        'Nr of Data Points': len(t)
+    }
     pprint.pprint(stats, indent=4)  
 

@@ -37,9 +37,16 @@ msg_stats = {
 ##########
 virtual = True
 verbose = False
-TX_sampletime = 0.01
-TIMEOUT = 3
+TX_sampletime = 0.1
+TIMEOUT = 5
 progress_bar_steps = 100
+
+
+# Input parameters
+step_time = 1.0
+overshoot = 0.2
+oscillation = 0.1
+
 
 ################################################################################
 
@@ -55,11 +62,6 @@ def generate_step_response(step_t, overshoot, oscillation, t):
     # TODO: something with oscillation....
 
     return response
-
-# Input parameters
-step_time = 1.0
-overshoot = 0.2
-oscillation = 0.1
 
 
 def send_virtual_can_message(ch, frame_id, data):
@@ -97,7 +99,6 @@ def send_messages(ch, db, calculated_messages):
         
             if verbose:
                 print(f"Sending CAN message: {message_name} ID = {frame_id}")
-            
             
             if message_name == 'dv_driving_dynamics_1':
                 time_now = time.time() - start_time 
