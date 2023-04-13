@@ -15,7 +15,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-CAN_RX_path = 'output/CAN_RX.pkl'
+CAN_RX_path = 'output/CAN_RESPONSES/CAN_RX_2023_04_13__08_01_58.pkl'
 with open(CAN_RX_path, 'rb') as file:
     CAN_RX = pickle.load(file)
     
@@ -75,7 +75,7 @@ def gather_data(message_of_interest):
 #######################
 
 plot_step_time = False
-plot_overshoot = False
+plot_overshoot = True
 plot_target    = False
 print_stats    = True
 

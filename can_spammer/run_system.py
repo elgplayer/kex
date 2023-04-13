@@ -248,10 +248,8 @@ def main():
         'CAN_filename': f'CAN_RX_{formatted_date}.pkl'
     })
     
-    
     with open(CAN_RESPONSES_info_path, 'w', encoding='utf-8') as f:
         f.write(json.dumps(CAN_RESPONSES_info, indent=4))
-    
     
     with open(CAN_response, 'wb') as f:
         pickle.dump(recived_data_dict, f)
