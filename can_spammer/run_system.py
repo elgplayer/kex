@@ -30,24 +30,25 @@ msg_stats = {
     'tx': 0
 }
 
-
-
 ##########
 # CONFIG #
 ##########
 virtual = True
 verbose = False
-TX_sampletime = 0.1
-TIMEOUT = 5
 progress_bar_steps = 100
 
+timeout = 10
 
-# Input parameters
-step_time = 1.0
-overshoot = 0.2
-oscillation = 0.1
+TX_sampletime = 0.1
+step_sample_time = 0.1
+
+step_time = 4       # seconds  
+step_target = 50    # Degrees
+overshoot = 0.2     # 
+oscillation = 0.1   #
 
 
+RX_ignore_id = [1280]
 ################################################################################
 
 
@@ -66,6 +67,9 @@ def generate_step_response(step_t, overshoot, oscillation, t):
 
 def send_virtual_can_message(ch, frame_id, data):
     ch.write(Frame(id_=frame_id, data=data))
+    
+if step_time > timeout:
+    print("Error! Step is outside of the timeout period!")
 
 ################################################################################
 
@@ -90,24 +94,32 @@ def send_messages(ch, db, calculated_messages):
         for k, x in enumerate(random_signal_data):
             
             if start_time == None:
-                
                 start_time = time.time()
             
+            time_now = time.time() - start_time
             frame_id = random_signal_data[x]['frame_id']
             message_name = random_signal_data[x]['name']
             encoded_data = random_signal_data[x]['encoded_data']
+            
+            # Skip!
+            if frame_id in RX_ignore_id:
+                continue
+            
+            # Generate a fake step response
+            # TODO: Still a bit broken!
+            if message_name == 'dcu_status_steering_brake' and virtual == True:
+                if time_now < step_time:
+                    steering_angle = 1024
+                else:
+                    steering_angle = int(500 * generate_step_response(10, overshoot, oscillation, time_now) + 1024)
+                data = random_signal_data[x]['data']
+                data['steering_angle_2'] = steering_angle
+                message = db.get_message_by_name(message_name)
+                encoded_data = message.encode(data, scaling=False)
         
             if verbose:
                 print(f"Sending CAN message: {message_name} ID = {frame_id}")
             
-            if message_name == 'dv_driving_dynamics_1':
-                time_now = time.time() - start_time 
-                random_signal_data[x]['data']['steering_angle_actual'] = generate_step_response(step_time, overshoot, oscillation, time_now) * 50
-                random_signal_data[x]['data']['steering_angle_target'] = 57
-                message = db.get_message_by_name('dv_driving_dynamics_1')
-                # print("hej")
-                encoded_data = message.encode(random_signal_data[x]['data'], scaling=False) 
-                
             send_virtual_can_message(ch, frame_id, encoded_data)
             msg_stats['tx'] += 1
 
@@ -117,6 +129,38 @@ def send_messages(ch, db, calculated_messages):
             print(f"Iteration: {iteration}")
        
         iteration += 1
+
+
+def send_step(ch, db):
+    global shutdown_flag
+    global start_time
+    
+    message = db.get_message_by_name('dv_driving_dynamics_1')
+    step_data = {}
+    has_stepped = False
+    for signal in db.get_message_by_name('dv_driving_dynamics_1').signals:
+        step_data[signal.name] = 0
+    
+    # Keep sending messages until the shutdown_flag is set
+    while not shutdown_flag:
+        
+        if start_time == None:
+            start_time = time.time()
+
+        # We want to trigger the step!
+        time_diff = time.time() - start_time
+        if time_diff > step_time and has_stepped == False:
+            step_data['steering_angle_target'] = step_target
+            has_stepped = True
+
+        # Encode the message
+        encoded_data = message.encode(step_data, scaling=False)
+        send_virtual_can_message(ch, message.frame_id, encoded_data)
+        msg_stats['tx'] += 1
+
+        # Sleep for the specified TX_sampletime between message bursts
+        time.sleep(step_sample_time)
+
 
 
 # Function to receive messages and process them
@@ -137,9 +181,8 @@ def receive_messages(ch, db):
                 
                 time_recived = time.time()
                 message = db.get_message_by_frame_id(rx_id)
-                decoded_data = message.decode(rx_data)
-                result = message.decode(rx_data)
-                
+                decoded_data = message.decode(rx_data, scaling=False)
+
                 msg_stats['rx'] += 1
 
                 # Store the received message data
@@ -155,9 +198,6 @@ def receive_messages(ch, db):
                 if verbose:
                     print(f"Received CAN message with ID: {rx_id} and data: {decoded_data} | {message.name}")
                 
-                received_data.append({'message_name': message.name, 'data': result})
-                received_data_timestamps.append(time.time())
-   
 
 def main():
     channel = 0
@@ -184,19 +224,26 @@ def main():
     with open(CAN_messages, 'rb') as file:
         calculated_messages = pickle.load(file)
         
-    print(f"Starting CAN DDOS for {TIMEOUT} seconds")
-    print(f"TX sample frequency: {1/TX_sampletime}")
-
+    print(f"Starting CAN DDOS for {timeout} seconds")
+    if TX_sampletime != 0:
+        print(f"TX sample frequency: {1/TX_sampletime}")
+    else:
+        print("TX DDOS disbled!")
+    
     # Use threads
-    send_thread = threading.Thread(target=send_messages, args=(ch_send, db1, calculated_messages))
+    if TX_sampletime != 0:
+        send_thread = threading.Thread(target=send_messages, args=(ch_send, db1, calculated_messages))
     receive_thread = threading.Thread(target=receive_messages, args=(ch_receive, db1))
+    step_thread = threading.Thread(target=send_step, args=(ch_send, db1))
 
     # Start the threads
-    send_thread.start()
+    if TX_sampletime != 0:
+        send_thread.start()
     receive_thread.start()
+    step_thread.start()
 
-    # Wait for TIMEOUT before setting the shutdown_flag
-    sleep_time = TIMEOUT/progress_bar_steps
+    # Wait for timeout before setting the shutdown_flag
+    sleep_time = timeout/progress_bar_steps
     for _ in tqdm(range(progress_bar_steps), desc="Waiting", ncols=75, unit="sec"):
         time.sleep(sleep_time)
 
@@ -206,6 +253,7 @@ def main():
     # Join the threads
     send_thread.join()
     receive_thread.join()
+    step_thread.join()
 
     # nice printout
     pprint.pprint(msg_stats)
@@ -235,6 +283,18 @@ def main():
     formatted_date = datetime_now.strftime("%Y_%m_%d__%H_%M_%S")
     CAN_response = f'{CAN_RESPONSES_path}/CAN_RX_{formatted_date}.pkl'
     
+#     timeout = 10
+
+# TX_sampletime = 0.1
+# step_sample_time = 0.1
+
+# step_time = 3       # seconds  
+# step_target = 50    # Degrees
+# overshoot = 0.2     # 
+# oscillation = 0.1   #
+
+# Ignore id
+    
     CAN_RESPONSES_info.append({
         'date': datetime_now.strftime("%Y:%m:%d %H:%M:%S"),
         'formatted_date': formatted_date,
@@ -242,7 +302,7 @@ def main():
         'tx_msg': msg_stats['tx'],
         'priority': 0.69, # placeholder,
         'TX_sampletime': TX_sampletime,
-        'TIMEOUT': TIMEOUT,
+        'timeout': timeout,
         'step_time': step_time,
         'overshoot': overshoot,
         'oscillation': oscillation,

@@ -7,6 +7,7 @@ import json
 from io import StringIO
 import decimal
 import pickle
+import os
 
 import cantools
 from canlib import canlib, Frame
@@ -14,12 +15,36 @@ import matplotlib as plt
 import numpy as np
 import matplotlib.pyplot as plt
 
+################## 
+# CONFIG #########
+##################
 
-CAN_RX_path = 'output/CAN_RESPONSES/CAN_RX_2023_04_13__08_01_58.pkl'
+use_last_CAN_RX_file = True
+
+CAN_RX_name = 'CAN_RX_2023_04_13__08_01_58.pkl'
+CAN_RX_dir = 'output/CAN_RESPONSES'
+CAN_MESSAGES_path =  'output/messages_small.pkl'
+DBC_path = 'src/can1.dbc'
+
+
+##################
+
+
+def get_latest_file(directory):
+    # List all files in the directory
+    all_files = [os.path.join(directory, f) for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))]
+    # Find the last modified file
+    last_modified_file = max(all_files, key=os.path.getmtime).split("\\")[-1]
+    return last_modified_file
+
+if use_last_CAN_RX_file:
+    CAN_RX_path = f'{CAN_RX_dir}/{get_latest_file(CAN_RX_dir)}'
+    print(f"Loading latest CAN: {CAN_RX_path}")
+else:
+    CAN_RX_path = f'{CAN_RX_dir}/{CAN_RX_name}'
 with open(CAN_RX_path, 'rb') as file:
     CAN_RX = pickle.load(file)
-    
-CAN_MESSAGES_path = 'output/messages_small.pkl'
+
 with open(CAN_MESSAGES_path, 'rb') as file:
     CAN_MESSAGES = pickle.load(file)
 
@@ -31,7 +56,7 @@ db = cantools.database.load_file(r"src/can1.dbc")
 def analyze_system_response(target, output_data, time_data):
     # Step 1: Calculate step time
     step_time_10_idx = np.argmax(output_data >= 0.1 * target)
-    step_time_10 = time_data[step_time_10_idx]
+    step_time_10 = time_data[ste]
     step_time_90_idx = np.argmax(output_data >= 0.9 * target)
     step_time_90 = time_data[step_time_90_idx]
 
@@ -79,6 +104,24 @@ def convert_to_angle(input_array):
     output_array = ((input_array - input_min) / (input_max - input_min)) * (output_max - output_min) + output_min
     return output_array
 
+
+def plot_at_same_time_axis(t, t_dv_driving_dynamics_1, steering_actual, steering_target):
+    
+    combined_time = np.unique(np.concatenate((t, t_dv_driving_dynamics_1)))
+    # Interpolate data1 and data2 at the combined time points
+    interp_data1 = np.interp(combined_time, t, steering_actual)
+    interp_data2 = np.interp(combined_time, t_dv_driving_dynamics_1, steering_target)
+
+    # Plot the interpolated data on the same plot
+    plt.plot(combined_time, interp_data1, label="Steering Actual")
+    plt.plot(combined_time, interp_data2, label="Steering Target")
+
+    plt.xlabel("Time")
+    plt.ylabel("Data")
+    plt.legend()
+    plt.grid()
+    plt.show()
+
 #######################
 ### PLOT CONFIG #######
 #######################
@@ -97,17 +140,22 @@ print_stats          = False
 message_of_interest = 'dcu_status_steering_brake'
 t_dcu_status_steering_brake, data_dcu_status_steering_brake = gather_data(message_of_interest)
 t = np.array(t_dcu_status_steering_brake) # Convert to numpy arrya
+init_val = t[0]
 t = t - t[0] # Make the time reference start from the first message
 
 # We want to see when the step is
 message_of_interest = 'dv_driving_dynamics_1'
 t_dv_driving_dynamics_1, data_dv_driving_dynamics_1 = gather_data(message_of_interest)
 t_dv_driving_dynamics_1 = np.array(t_dv_driving_dynamics_1) # Convert to numpy arrya
-t_dv_driving_dynamics_1 = t_dv_driving_dynamics_1 - t[0] # Make the time reference start from the first message
+t_dv_driving_dynamics_1 = t_dv_driving_dynamics_1 - init_val # Make the time reference start from the first message
+
+combined_time = np.unique(np.concatenate((t, t_dv_driving_dynamics_1)))
 
 
 steering_actual = convert_to_angle(np.array(data_dcu_status_steering_brake['steering_angle_2']))
-steering_target = convert_to_angle(np.array(data_dv_driving_dynamics_1['steering_angle_target']))
+steering_target = np.array(data_dv_driving_dynamics_1['steering_angle_target'])
+
+print("LEN: ", len(CAN_RX['dv_driving_dynamics_1']['time']))
 
 if plot_step_time or plot_overshoot or plot_target or print_stats:
     step_time, overshoot, oscillation = analyze_system_response(steering_target, steering_actual, t)
@@ -152,3 +200,5 @@ if print_stats:
     }
     pprint.pprint(stats, indent=4)  
 
+
+plt.plot(steering_target)
