@@ -1,0 +1,7 @@
+scipy
+numpy
+matplotlib
+pandas
+cantools
+canlib
+tqdm

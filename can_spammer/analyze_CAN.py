@@ -15,6 +15,7 @@ import matplotlib as plt
 import numpy as np
 import matplotlib.pyplot as plt
 
+
 ################## 
 # CONFIG #########
 ##################
@@ -50,18 +51,33 @@ with open(CAN_MESSAGES_path, 'rb') as file:
 
 db = cantools.database.load_file(r"src/can1.dbc")
     
-# pprint.pprint(CAN_RX, indent=4)
-#%%
 
 def analyze_system_response(target, output_data, time_data):
     # Step 1: Calculate step time
-    step_time_10_idx = np.argmax(output_data >= 0.1 * target)
-    step_time_10 = time_data[ste]
-    step_time_90_idx = np.argmax(output_data >= 0.9 * target)
+    if target > 0:
+        step_time_10_idx = np.argmax(output_data >= 0.1 * target)
+        step_time_90_idx = np.argmax(output_data >= 0.9 * target)
+    else:
+        step_time_10_idx = np.argmax(output_data <= 0.1 * target)
+        step_time_90_idx = np.argmax(output_data <= 0.9 * target)
+
+    step_time_10 = time_data[step_time_10_idx]
     step_time_90 = time_data[step_time_90_idx]
 
     # Step 2: Calculate overshoot
-    overshoot = (max(output_data) / target) - 1
+    if target > 0:
+        overshoot_idx = np.argmax(output_data)
+        overshoot_value = output_data[overshoot_idx]
+    else:
+        overshoot_idx = np.argmin(output_data)
+        overshoot_value = output_data[overshoot_idx]
+    
+    overshoot = (overshoot_value / target) - 1
+    overshoot_dict = {
+        'overshoot':       overshoot,
+        'overshoot_idx':   overshoot_idx,
+        'overshoot_value': overshoot_value
+    }
 
     # Step 3: Calculate oscillation
     output_data_after_step = output_data[step_time_90_idx:]
@@ -74,7 +90,8 @@ def analyze_system_response(target, output_data, time_data):
         'step_time': step_time_90 - step_time_10
     }
 
-    return step_time, overshoot, oscillation
+    return step_time, overshoot_dict, oscillation
+
 
 
 # Initialize an empty dictionary to store the key lists
@@ -95,14 +112,13 @@ def gather_data(message_of_interest):
     return x,y
 
 
-def convert_to_angle(input_array):
-    input_min = 0
-    input_max = 2024
-    output_min = -90.0
-    output_max = 90.0
-
-    output_array = ((input_array - input_min) / (input_max - input_min)) * (output_max - output_min) + output_min
-    return output_array
+def convert_range(input_array):
+    old_min = -2024
+    old_max = 2024
+    new_min = -90
+    new_max = 90
+    
+    return new_min + (input_array - old_min) * (new_max - new_min) / (old_max - old_min)
 
 
 def plot_at_same_time_axis(t, t_dv_driving_dynamics_1, steering_actual, steering_target):
@@ -112,29 +128,33 @@ def plot_at_same_time_axis(t, t_dv_driving_dynamics_1, steering_actual, steering
     interp_data1 = np.interp(combined_time, t, steering_actual)
     interp_data2 = np.interp(combined_time, t_dv_driving_dynamics_1, steering_target)
 
+    fig, ax = plt.subplots()
+    fig.set_size_inches(10, 8)
     # Plot the interpolated data on the same plot
-    plt.plot(combined_time, interp_data1, label="Steering Actual")
-    plt.plot(combined_time, interp_data2, label="Steering Target")
+    ax.plot(combined_time, interp_data1, linestyle='-', markersize=2, label="Steering Actual")
+    ax.plot(combined_time, interp_data2, label="Steering Target", alpha=0.5)
 
-    plt.xlabel("Time")
-    plt.ylabel("Data")
-    plt.legend()
-    plt.grid()
-    plt.show()
+    ax.set_xlabel("Time [s]")
+    ax.set_ylabel("Steering angle [°]")
+    ax.legend(loc='best')
+    # Display the plot
+    ax.grid()
+    
+    # plt.grid()
+    return fig, ax
 
-#######################
-### PLOT CONFIG #######
-#######################
+###########################
+### PLOT CONFIG ###########
+###########################
 
 plot_system_response = True
 plot_step_time       = False
 plot_overshoot       = False
-plot_target          = False
 print_stats          = False
 
-######################
-######################
-######################
+##########################
+##########################
+##########################
 
 # Get the steering position from the DCU
 message_of_interest = 'dcu_status_steering_brake'
@@ -149,56 +169,45 @@ t_dv_driving_dynamics_1, data_dv_driving_dynamics_1 = gather_data(message_of_int
 t_dv_driving_dynamics_1 = np.array(t_dv_driving_dynamics_1) # Convert to numpy arrya
 t_dv_driving_dynamics_1 = t_dv_driving_dynamics_1 - init_val # Make the time reference start from the first message
 
+# Combine the two to one time axis
 combined_time = np.unique(np.concatenate((t, t_dv_driving_dynamics_1)))
-
-
-steering_actual = convert_to_angle(np.array(data_dcu_status_steering_brake['steering_angle_2']))
+steering_actual = convert_range(np.array(data_dcu_status_steering_brake['steering_angle_2']))
 steering_target = np.array(data_dv_driving_dynamics_1['steering_angle_target'])
 
-print("LEN: ", len(CAN_RX['dv_driving_dynamics_1']['time']))
 
-if plot_step_time or plot_overshoot or plot_target or print_stats:
-    step_time, overshoot, oscillation = analyze_system_response(steering_target, steering_actual, t)
+if plot_step_time or plot_overshoot or print_stats:
+    step_time, overshoot, oscillation = analyze_system_response(steering_target[-1], steering_actual, t)
 
 if plot_system_response:
     # Plot the step response
-    plt.plot(t, steering_actual, label='Response')
+    fig, ax = plot_at_same_time_axis(t, t_dv_driving_dynamics_1, steering_actual, steering_target)
 
-# Plot the target value
-if plot_target:
-    plt.axhline(steering_target, linestyle='--', color='r', label='Target')
 
 # Add vertical lines for the 10% and 90% step times
 if plot_step_time:
-    plt.axvline(x=step_time['step_10'], color='r', linestyle='--', label='10% Step Time')
-    plt.axvline(x=step_time['step_90'], color='g', linestyle='--', label='90% Step Time')
+    ax.axvline(x=step_time['step_10'], color='r', linestyle='--', label='10% Step Time', alpha=0.5)
+    ax.axvline(x=step_time['step_90'], color='g', linestyle='--', label='90% Step Time', alpha=0.5)
 
 # Plot the overshoot
 if plot_overshoot:
-    max_value = max(steering_actual)
-    overshoot_time = t[np.argmax(steering_actual)]
-    plt.plot(overshoot_time, max_value, 'bo', label='Overshoot')
-    plt.axhline(max_value, linestyle=':', color='b')
-
-# Labels and stuff
-if plot_system_response:
-    plt.xlabel('Time (s)')
-    plt.ylabel('Response')
-    plt.title(f'Step Response with Overshoot')
-    plt.legend()
-    plt.grid()
-    plt.show()
+    #max_value = max(steering_actual)
+    overshoot_val  = overshoot['overshoot_value']
+    overshoot_time = t[overshoot['overshoot_idx']]
+    
+    ax.plot(overshoot_time, overshoot_val, 'bo', label='Overshoot')
+    ax.axhline(overshoot_val, linestyle=':', color='b', alpha=0.5)
 
 # Nice stats
+
 if print_stats:
     stats = {
-        'overshoot': round(max_value / steering_target,4),
+        'overshoot': round(overshoot['overshoot'] / steering_target[-1],4),
         'step_time': round(step_time['step_time'],4),
         'Init value': steering_actual[0],
-        'target'   : steering_target,
-        'Nr of Data Points': len(t)
+        'target'   : steering_target[-1],
+        'Nr of Data Points': len(t),
+        'Final value': steering_actual[-1],
+        'Diff % from target': steering_actual[-1] / steering_target[-1] 
     }
     pprint.pprint(stats, indent=4)  
 
-
-plt.plot(steering_target)

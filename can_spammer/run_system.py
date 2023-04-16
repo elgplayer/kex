@@ -10,12 +10,14 @@ import pickle
 import threading
 import os
 from datetime import datetime
+import math
 
 
 import cantools
 from tqdm import tqdm
 from canlib import canlib, Frame
 import numpy as np
+from scipy.signal import lti, step
 
 
 received_data = []
@@ -23,46 +25,110 @@ received_data_timestamps = []
 recived_data_dict = {}
 shutdown_flag = False
 global start_time
+global step_target
 start_time = None
-
+state = np.zeros((2, 1))
+response = []
 msg_stats = {
     'rx': 0, 
     'tx': 0
 }
 
+################################################################################
+
 ##########
 # CONFIG #
 ##########
+
 virtual = True
 verbose = False
 progress_bar_steps = 100
+read_steering_from_file = True
+steering_file = 'src/time_steer_out.txt'
 
-timeout = 10
+
+timeout = 5
 
 TX_sampletime = 0.1
-step_sample_time = 0.1
+step_sample_time = 0.01
 
-step_time = 4       # seconds  
-step_target = 50    # Degrees
-overshoot = 0.2     # 
-oscillation = 0.1   #
+
+step_time = 2       # seconds  
+step_target = 40    # Degrees
+damping_ratio = 0.3
+natural_frequency = 5
 
 
 RX_ignore_id = [1280]
+
 ################################################################################
 
+def generate_step_response(final_value, damping_ratio, natural_frequency, state, dt):
+    """
+    Generates a step response with customizable overshoot and oscillations using a second-order system model.
 
-def generate_step_response(step_t, overshoot, oscillation, t):
-    # Calculate the damped natural frequency and damping ratio
-    wn = np.pi / (step_t * np.sqrt(1 - overshoot**2))
-    zeta = -np.log(overshoot) / np.sqrt(np.pi**2 + np.log(overshoot)**2)
+    Parameters:
+    final_value (float): The final value after the step.
+    damping_ratio (float): The damping ratio of the system (0 to 1).
+    natural_frequency (float): The natural frequency of the system.
+    state (array): The current state of the system.
+    dt (float): The time step.
 
-    # Calculate the step response
-    response = 1 - np.exp(-zeta * wn * t) * (np.cos(wn * np.sqrt(1 - zeta**2) * t) + (zeta / np.sqrt(1 - zeta**2)) * np.sin(wn * np.sqrt(1 - zeta**2) * t))
+    Returns:
+    tuple: A tuple containing the updated state and the response at the current time step.
+    """
+    # Calculate the second-order system coefficients
+    wn_square = natural_frequency ** 2
+    two_zeta_wn = 2 * damping_ratio * natural_frequency
 
-    # TODO: something with oscillation....
+    # Create the continuous state-space matrices
+    Ac = np.array([[0, 1], [-wn_square, -two_zeta_wn]])
+    Bc = np.array([[0], [1]])
+    C = np.array([wn_square * final_value, 0])
+    D = 0
 
-    return response
+    # Backward Euler method
+    I = np.eye(2)
+    A_inv = np.linalg.inv(I - dt * Ac)
+    state = A_inv @ (state + dt * Bc)
+
+    # Calculate the output
+    output = C @ state + D
+
+    return state, output.item()
+
+
+def process_file(file_path):
+    with open(file_path, 'r') as file:
+        lines = file.readlines()
+
+    # Parse the first timestamp
+    first_timestamp, _ = lines[0].strip().split(',')
+    first_timestamp = float(first_timestamp)
+
+    # Process the lines
+    processed_lines = {
+        'time': [],
+        'data': []
+    }
+    for line in lines:
+        timestamp, radians = line.strip().split(',')
+        timestamp = float(timestamp)
+        radians = float(radians)
+
+        # Make the timestamp relative to the first timestamp
+        relative_timestamp = timestamp - first_timestamp
+
+        # Convert radians to degrees
+        degrees = radians * (180 / math.pi)
+        if abs(degrees) > 180:
+            continue   
+        
+        processed_lines['time'].append(relative_timestamp)
+        processed_lines['data'].append(degrees)
+        
+
+    return processed_lines
 
 
 def send_virtual_can_message(ch, frame_id, data):
@@ -78,6 +144,16 @@ def send_messages(ch, db, calculated_messages):
     iteration = 0
     global shutdown_flag
     global start_time
+    global step_target
+    
+    #last_time = time.time()
+    state = np.zeros((2, 1))
+    response = []
+    
+    if start_time == None:
+        start_time = time.time()
+        time_now = start_time
+            
     # Keep sending messages until the shutdown_flag is set
     while not shutdown_flag:
         
@@ -93,14 +169,16 @@ def send_messages(ch, db, calculated_messages):
         # Iterate through the messages and send them
         for k, x in enumerate(random_signal_data):
             
-            if start_time == None:
-                start_time = time.time()
-            
             time_now = time.time() - start_time
             frame_id = random_signal_data[x]['frame_id']
             message_name = random_signal_data[x]['name']
             encoded_data = random_signal_data[x]['encoded_data']
-            
+
+            # Read from file and generate new steering targets!
+            if message_name == 'dv_driving_dynamics_1' and read_steering_from_file == True:
+                data = random_signal_data[x]['data']
+                step_target_2 = data['steering_angle_target']
+
             # Skip!
             if frame_id in RX_ignore_id:
                 continue
@@ -109,22 +187,43 @@ def send_messages(ch, db, calculated_messages):
             # TODO: Still a bit broken!
             if message_name == 'dcu_status_steering_brake' and virtual == True:
                 if time_now < step_time:
-                    steering_angle = 1024
+                    steering_angle = 0
                 else:
-                    steering_angle = int(500 * generate_step_response(10, overshoot, oscillation, time_now) + 1024)
+                    if read_steering_from_file:
+                        step_target = step_target_2
+  
+                    # Generate the step response
+                    dt = time_now - last_time
+                    state, output = generate_step_response(step_target, damping_ratio, natural_frequency, state, dt)
+                    steering_angle = int((output / 90) * 2024)
+                    
+                    # Clip output
+                    if steering_angle > 2024:
+                        steering_angle = 2024
+                    elif steering_angle < -2024:
+                        steering_angle = -2024
+                    
+                response.append(steering_angle)
                 data = random_signal_data[x]['data']
                 data['steering_angle_2'] = steering_angle
                 message = db.get_message_by_name(message_name)
-                encoded_data = message.encode(data, scaling=False)
-        
+                try:
+                    encoded_data = message.encode(data, scaling=False)
+                except Exception as e:
+                    tqdm.write(f"Error: {e} | {data}")
+
             if verbose:
                 print(f"Sending CAN message: {message_name} ID = {frame_id}")
             
+
+            
             send_virtual_can_message(ch, frame_id, encoded_data)
+            
             msg_stats['tx'] += 1
 
         # Sleep for the specified TX_sampletime between message bursts
         time.sleep(TX_sampletime)
+        last_time = time_now
         if verbose:
             print(f"Iteration: {iteration}")
        
@@ -134,13 +233,22 @@ def send_messages(ch, db, calculated_messages):
 def send_step(ch, db):
     global shutdown_flag
     global start_time
+    global step_target
     
     message = db.get_message_by_name('dv_driving_dynamics_1')
     step_data = {}
     has_stepped = False
     for signal in db.get_message_by_name('dv_driving_dynamics_1').signals:
         step_data[signal.name] = 0
-    
+        
+        
+    if read_steering_from_file == True:
+        steering_requests = process_file(steering_file)
+        steering_index = 0
+        
+        steering_requests['data'] = steering_requests['data'][0:20]
+        steering_requests['time'] = steering_requests['time'][0:20]
+        
     # Keep sending messages until the shutdown_flag is set
     while not shutdown_flag:
         
@@ -149,18 +257,24 @@ def send_step(ch, db):
 
         # We want to trigger the step!
         time_diff = time.time() - start_time
-        if time_diff > step_time and has_stepped == False:
+        if time_diff > step_time:
+            if read_steering_from_file == True:
+                step_target = steering_requests['data'][steering_index]
+                steering_index += 1
+            
             step_data['steering_angle_target'] = step_target
-            has_stepped = True
-
+            
         # Encode the message
         encoded_data = message.encode(step_data, scaling=False)
         send_virtual_can_message(ch, message.frame_id, encoded_data)
         msg_stats['tx'] += 1
 
         # Sleep for the specified TX_sampletime between message bursts
-        time.sleep(step_sample_time)
-
+        if time_diff > step_time and read_steering_from_file == True:
+            time.sleep(steering_requests['time'][steering_index])
+        # Normal sleep
+        else:
+            time.sleep(step_sample_time)
 
 
 # Function to receive messages and process them
@@ -283,18 +397,6 @@ def main():
     formatted_date = datetime_now.strftime("%Y_%m_%d__%H_%M_%S")
     CAN_response = f'{CAN_RESPONSES_path}/CAN_RX_{formatted_date}.pkl'
     
-#     timeout = 10
-
-# TX_sampletime = 0.1
-# step_sample_time = 0.1
-
-# step_time = 3       # seconds  
-# step_target = 50    # Degrees
-# overshoot = 0.2     # 
-# oscillation = 0.1   #
-
-# Ignore id
-    
     CAN_RESPONSES_info.append({
         'date': datetime_now.strftime("%Y:%m:%d %H:%M:%S"),
         'formatted_date': formatted_date,
@@ -304,10 +406,12 @@ def main():
         'TX_sampletime': TX_sampletime,
         'timeout': timeout,
         'step_time': step_time,
-        'overshoot': overshoot,
-        'oscillation': oscillation,
+        'step_target': step_target,
+        'natural_frequency': natural_frequency,
+        'damping_ratio': damping_ratio,
         'CAN_filename': f'CAN_RX_{formatted_date}.pkl'
     })
+    
     
     with open(CAN_RESPONSES_info_path, 'w', encoding='utf-8') as f:
         f.write(json.dumps(CAN_RESPONSES_info, indent=4))
