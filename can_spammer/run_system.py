@@ -26,6 +26,7 @@ recived_data_dict = {}
 shutdown_flag = False
 global start_time
 global step_target
+global total_bits_transmitted
 start_time = None
 state = np.zeros((2, 1))
 response = []
@@ -33,6 +34,7 @@ msg_stats = {
     'rx': 0, 
     'tx': 0
 }
+total_bits_transmitted = 0
 
 ################################################################################
 
@@ -49,7 +51,7 @@ steering_file = 'src/time_steer_out.txt'
 
 timeout = 5
 
-TX_sampletime = 0.1
+TX_sampletime = 0.0001
 step_sample_time = 0.01
 
 
@@ -139,6 +141,16 @@ if step_time > timeout:
 
 ################################################################################
 
+def calculate_bus_load(bit_rate=1e6):
+    global total_bits_transmitted
+    global start_time_RX
+
+    # Calculate the bus load as a percentage
+    bus_load = (total_bits_transmitted / (bit_rate * start_time_RX)) * 100
+
+    return bus_load
+
+
 # Function to send messages according to calculated_messages data
 def send_messages(ch, db, calculated_messages):
     iteration = 0
@@ -146,9 +158,12 @@ def send_messages(ch, db, calculated_messages):
     global start_time
     global step_target
     
-    #last_time = time.time()
+    global total_bits_transmitted
+    
+
     state = np.zeros((2, 1))
     response = []
+    bus_load = []
     
     if start_time == None:
         start_time = time.time()
@@ -183,6 +198,10 @@ def send_messages(ch, db, calculated_messages):
             if frame_id in RX_ignore_id:
                 continue
             
+             # Calculate message size in bits
+            message_size_bits = 44 + (8 * len(encoded_data))
+            total_bits_transmitted += message_size_bits
+    
             # Generate a fake step response
             # TODO: Still a bit broken!
             if message_name == 'dcu_status_steering_brake' and virtual == True:
@@ -214,9 +233,7 @@ def send_messages(ch, db, calculated_messages):
 
             if verbose:
                 print(f"Sending CAN message: {message_name} ID = {frame_id}")
-            
 
-            
             send_virtual_can_message(ch, frame_id, encoded_data)
             
             msg_stats['tx'] += 1
@@ -224,11 +241,13 @@ def send_messages(ch, db, calculated_messages):
         # Sleep for the specified TX_sampletime between message bursts
         time.sleep(TX_sampletime)
         last_time = time_now
+        bus_load.append(calculate_bus_load())
         if verbose:
             print(f"Iteration: {iteration}")
        
         iteration += 1
 
+    pprint.pprint(bus_load)
 
 def send_step(ch, db):
     global shutdown_flag
@@ -280,8 +299,13 @@ def send_step(ch, db):
 # Function to receive messages and process them
 def receive_messages(ch, db):
     db_frame_ids = [message.frame_id for message in db.messages]
-
+    
     global shutdown_flag
+    global total_bits_transmitted
+    global start_time_RX
+    
+    start_time_RX = time.time()
+    
     # Keep receiving messages until the shutdown_flag is set
     while not shutdown_flag:
         # Check for pending messages and read them
@@ -296,8 +320,11 @@ def receive_messages(ch, db):
                 time_recived = time.time()
                 message = db.get_message_by_frame_id(rx_id)
                 decoded_data = message.decode(rx_data, scaling=False)
-
                 msg_stats['rx'] += 1
+
+                # Calculate message size in bits
+                message_size_bits = 44 + (8 * len(rx_data))
+                total_bits_transmitted += message_size_bits
 
                 # Store the received message data
                 if message.name not in recived_data_dict:
