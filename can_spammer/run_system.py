@@ -51,7 +51,7 @@ steering_file = 'src/time_steer_out.txt'
 
 timeout = 5
 
-TX_sampletime = 0.0001
+TX_sampletime = 0.1
 step_sample_time = 0.01
 
 
@@ -144,9 +144,11 @@ if step_time > timeout:
 def calculate_bus_load(bit_rate=1e6):
     global total_bits_transmitted
     global start_time_RX
+    
+    total_time = time.time() - start_time_RX
 
     # Calculate the bus load as a percentage
-    bus_load = (total_bits_transmitted / (bit_rate * start_time_RX)) * 100
+    bus_load = (total_bits_transmitted / (bit_rate * total_time)) * 100
 
     return bus_load
 
