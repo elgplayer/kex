@@ -18,7 +18,7 @@ from tqdm import tqdm
 from canlib import canlib, Frame
 import numpy as np
 from scipy.signal import lti, step
-
+import matplotlib.pyplot as plt
 
 received_data = []
 received_data_timestamps = []
@@ -51,8 +51,8 @@ steering_file = 'src/time_steer_out.txt'
 
 timeout = 5
 
-TX_sampletime = 0.1
-step_sample_time = 0.01
+TX_sampletime = 0.01
+step_sample_time = 0.1
 
 
 step_time = 2       # seconds  
@@ -61,7 +61,7 @@ damping_ratio = 0.3
 natural_frequency = 5
 
 
-RX_ignore_id = [1280]
+RX_ignore_id = [1280,  17]
 
 ################################################################################
 
@@ -141,6 +141,18 @@ if step_time > timeout:
 
 ################################################################################
 
+
+def message_bits(message):
+    identifier_bits = 29 if message.is_extended_frame else 11
+    control_bits = 1 + 6 + 1  # Start of frame, control, and end of frame
+    crc_bits = 15 + 1  # CRC and CRC delimiter
+    ack_bits = 1 + 1  # ACK slot and ACK delimiter
+    data_bits = message.length * 8
+
+    total_bits = control_bits + identifier_bits + data_bits + crc_bits + ack_bits
+    return total_bits
+
+
 def calculate_bus_load(bit_rate=1e6):
     global total_bits_transmitted
     global start_time_RX
@@ -162,7 +174,6 @@ def send_messages(ch, db, calculated_messages):
     
     global total_bits_transmitted
     
-
     state = np.zeros((2, 1))
     response = []
     bus_load = []
@@ -176,9 +187,8 @@ def send_messages(ch, db, calculated_messages):
         
         # If the end of the calculated_messages list is reached, stop sending messages
         if iteration > len(calculated_messages)-1:
-            shutdown_flag = True
-            print("Message list exhausted! Stopping...")
-            return
+            print("Message list exhausted! Restaring...")
+            iteration = 0
         
         # Get the message data for the current iteration
         random_signal_data = calculated_messages[iteration]
@@ -201,11 +211,11 @@ def send_messages(ch, db, calculated_messages):
                 continue
             
              # Calculate message size in bits
-            message_size_bits = 44 + (8 * len(encoded_data))
+            message = db.get_message_by_frame_id(frame_id)
+            message_size_bits = message_bits(message)
             total_bits_transmitted += message_size_bits
     
             # Generate a fake step response
-            # TODO: Still a bit broken!
             if message_name == 'dcu_status_steering_brake' and virtual == True:
                 if time_now < step_time:
                     steering_angle = 0
@@ -249,7 +259,8 @@ def send_messages(ch, db, calculated_messages):
        
         iteration += 1
 
-    pprint.pprint(bus_load)
+    #pprint.pprint(bus_load)
+    plt.plot(bus_load)
 
 def send_step(ch, db):
     global shutdown_flag
@@ -325,7 +336,8 @@ def receive_messages(ch, db):
                 msg_stats['rx'] += 1
 
                 # Calculate message size in bits
-                message_size_bits = 44 + (8 * len(rx_data))
+                message = db.get_message_by_frame_id(rx_id)
+                message_size_bits = message_bits(message)
                 total_bits_transmitted += message_size_bits
 
                 # Store the received message data

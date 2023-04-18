@@ -31,7 +31,7 @@ ignored_messages = []
 messages_frame_id = []
 messages_name     = []
 
-ignore_id = [1280]
+ignore_id = [1280, 17]
 
 for k,message in enumerate(db.messages):
     # if message.is_multiplexed():
