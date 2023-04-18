@@ -52,7 +52,23 @@ with open(CAN_MESSAGES_path, 'rb') as file:
 db = cantools.database.load_file(r"src/can1.dbc")
     
 
-def analyze_system_response(target, output_data, time_data):
+def analyze_system_response(target, output_data, common_time_data, steering_actual_time):
+    
+    step_time_idx = np.argmax(np.diff(steering_target) > 0)
+    step_time = np.argmax(combined_time == t_dv_driving_dynamics_1[step_time_idx])
+    
+
+    # Go from step_time_idx --> 0
+    for i in range(step_time_idx, -1, -1):
+        idx = np.argmax(t == combined_time[i])
+        if idx != 0:
+            start_value = output_data[idx]
+            print(idx, start_value)
+            break       
+        
+    #output_data = output_data - start_value    
+    target = target[-1] - start_value
+    
     # Step 1: Calculate step time
     if target > 0:
         step_time_10_idx = np.argmax(output_data >= 0.1 * target)
@@ -61,8 +77,8 @@ def analyze_system_response(target, output_data, time_data):
         step_time_10_idx = np.argmax(output_data <= 0.1 * target)
         step_time_90_idx = np.argmax(output_data <= 0.9 * target)
 
-    step_time_10 = time_data[step_time_10_idx]
-    step_time_90 = time_data[step_time_90_idx]
+    step_time_10 = common_time_data[step_time_10_idx]
+    step_time_90 = common_time_data[step_time_90_idx]
 
     # Step 2: Calculate overshoot
     if target > 0:
@@ -91,7 +107,6 @@ def analyze_system_response(target, output_data, time_data):
     }
 
     return step_time, overshoot_dict, oscillation
-
 
 
 # Initialize an empty dictionary to store the key lists
@@ -148,7 +163,7 @@ def plot_at_same_time_axis(t, t_dv_driving_dynamics_1, steering_actual, steering
 ###########################
 
 plot_system_response = True
-plot_step_time       = False
+plot_step_time       = True
 plot_overshoot       = False
 print_stats          = False
 
@@ -176,7 +191,7 @@ steering_target = np.array(data_dv_driving_dynamics_1['steering_angle_target'])
 
 
 if plot_step_time or plot_overshoot or print_stats:
-    step_time, overshoot, oscillation = analyze_system_response(steering_target[-1], steering_actual, t)
+    step_time, overshoot, oscillation = analyze_system_response(steering_target, steering_actual, combined_time, t)
 
 if plot_system_response:
     # Plot the step response

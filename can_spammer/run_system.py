@@ -45,23 +45,29 @@ total_bits_transmitted = 0
 virtual = True
 verbose = False
 progress_bar_steps = 100
-read_steering_from_file = True
+read_steering_from_file = False
 steering_file = 'src/time_steer_out.txt'
 
 
-timeout = 5
 
-TX_sampletime = 0.1
+
+
 step_sample_time = 0.1
 
+timeout       = 5      # How long to log
+TX_sampletime = 0.1    # Generate Noise 
+step_time      = 2     # seconds
+step_from      = -40   # Degrees
+step_target    = 40    # Degrees
 
-step_time = 2       # seconds  
-step_target = 40    # Degrees
+
+
+
 damping_ratio = 0.3
 natural_frequency = 5
 
 
-RX_ignore_id = [1280,  17]
+RX_ignore_id = [1280]
 
 ################################################################################
 
@@ -201,11 +207,6 @@ def send_messages(ch, db, calculated_messages):
             message_name = random_signal_data[x]['name']
             encoded_data = random_signal_data[x]['encoded_data']
 
-            # Read from file and generate new steering targets!
-            if message_name == 'dv_driving_dynamics_1' and read_steering_from_file == True:
-                data = random_signal_data[x]['data']
-                step_target_2 = data['steering_angle_target']
-
             # Skip!
             if frame_id in RX_ignore_id:
                 continue
@@ -220,9 +221,6 @@ def send_messages(ch, db, calculated_messages):
                 if time_now < step_time:
                     steering_angle = 0
                 else:
-                    if read_steering_from_file:
-                        step_target = step_target_2
-  
                     # Generate the step response
                     dt = time_now - last_time
                     state, output = generate_step_response(step_target, damping_ratio, natural_frequency, state, dt)
@@ -259,9 +257,6 @@ def send_messages(ch, db, calculated_messages):
        
         iteration += 1
 
-    #pprint.pprint(bus_load)
-    plt.plot(bus_load)
-
 def send_step(ch, db):
     global shutdown_flag
     global start_time
@@ -273,13 +268,13 @@ def send_step(ch, db):
     for signal in db.get_message_by_name('dv_driving_dynamics_1').signals:
         step_data[signal.name] = 0
         
+    step_data['steering_angle_target'] = step_from
         
     if read_steering_from_file == True:
         steering_requests = process_file(steering_file)
         steering_index = 0
-        
-        steering_requests['data'] = steering_requests['data'][0:20]
-        steering_requests['time'] = steering_requests['time'][0:20]
+        steering_requests['data'] = steering_requests['data']
+        steering_requests['time'] = np.diff(np.array(steering_requests['time']))
         
     # Keep sending messages until the shutdown_flag is set
     while not shutdown_flag:
