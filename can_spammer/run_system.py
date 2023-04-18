@@ -51,7 +51,7 @@ steering_file = 'src/time_steer_out.txt'
 
 timeout = 5
 
-TX_sampletime = 0.01
+TX_sampletime = 0.1
 step_sample_time = 0.1
 
 
@@ -318,6 +318,7 @@ def receive_messages(ch, db):
     global start_time_RX
     
     start_time_RX = time.time()
+    successful_messages = 0
     
     # Keep receiving messages until the shutdown_flag is set
     while not shutdown_flag:
@@ -330,25 +331,42 @@ def receive_messages(ch, db):
             # Process the message if it is part of the database
             if rx_id in db_frame_ids:
                 
-                time_recived = time.time()
-                message = db.get_message_by_frame_id(rx_id)
-                decoded_data = message.decode(rx_data, scaling=False)
+                
+                time_recieved = time.time()
                 msg_stats['rx'] += 1
+                
+                try:
+                    # Decode message
+                    message = db.get_message_by_frame_id(rx_id)
+                    decoded_data = message.decode(rx_data, scaling=False)
 
-                # Calculate message size in bits
-                message = db.get_message_by_frame_id(rx_id)
-                message_size_bits = message_bits(message)
-                total_bits_transmitted += message_size_bits
+                    # Calculate message size in bits
+                    message = db.get_message_by_frame_id(rx_id)
+                    message_size_bits = message_bits(message)
+                    total_bits_transmitted += message_size_bits
+                    successful_messages += 1
+                    
+                except Exception as e:
+                    # If decoding fails, approximate the message size using the average size of successful messages
+                    if successful_messages > 0:
+                        avg_message_size = total_bits_transmitted / successful_messages
+                        total_bits_transmitted += avg_message_size  
+                        
+                    continue
+
+                    # Hmm???
+                    # decoded_data = message.decode(rx_data, scaling=True)
+
 
                 # Store the received message data
                 if message.name not in recived_data_dict:
                     recived_data_dict[str(message.name)] = {
                         'data': [decoded_data],
-                        'time': [time_recived]
+                        'time': [time_recieved]
                     }
                 else:
                     recived_data_dict[message.name]['data'].append(decoded_data)
-                    recived_data_dict[message.name]['time'].append(time_recived)
+                    recived_data_dict[message.name]['time'].append(time_recieved)
 
                 if verbose:
                     print(f"Received CAN message with ID: {rx_id} and data: {decoded_data} | {message.name}")
