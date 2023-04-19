@@ -366,7 +366,7 @@ def receive_messages(ch, db):
                 if verbose:
                     print(f"Received CAN message with ID: {rx_id} and data: {decoded_data} | {message.name}")
                 
-
+#%%
 def main():
     channel = 0
     chd = canlib.ChannelData(channel)

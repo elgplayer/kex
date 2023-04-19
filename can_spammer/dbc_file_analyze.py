@@ -34,10 +34,8 @@ messages_name     = []
 ignore_id = [1280, 17]
 
 for k,message in enumerate(db.messages):
-    # if message.is_multiplexed():
-    
-    #     print("Skip", k)
-    #     continue
+    if message.is_multiplexed():
+        continue
     
     frame_id = message.frame_id
     
@@ -65,10 +63,12 @@ for p in percentiles:
     value = np.percentile(messages_frame_id, p)
     index = np.searchsorted(messages_frame_id, value)
     indices.append(index)
-
-
+    
 if normalize_frame_id: 
     messages_frame_id = range(0,len(messages_frame_id))
+
+# for k,x in enumerate(messages_frame_id):
+#     print(messages_frame_id[k], messages_name[k])
 
 plt.figure(figsize=(16, 8))
 plt.plot(messages_frame_id, marker='x')
@@ -83,9 +83,13 @@ for k, x in enumerate(indices):
     
     plt.axvline(x=x, color='r', linestyle='--', alpha=0.7)
     plt.text(x, 0, f"{frame_id} ({message_name})", rotation=90, ha='right', va='bottom')
-
+    
 
 plt.title(f"Frame IDs with Percentile Lines | Normalized: {normalize_frame_id}")
 plt.grid(True)
 plt.show()
+
+before_percentile = 10
+idx = np.argmax(percentiles == before_percentile+10)
+print(messages_frame_id[:idx])
 
