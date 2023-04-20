@@ -56,3 +56,4 @@ dkms.conf
 # My stuff
 can_spammer/old
 can_spammer/output
+resultat/messages_normalized.pkl
