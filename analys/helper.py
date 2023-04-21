@@ -201,6 +201,12 @@ def analyze_system_response(file_data, DATA_FOLDER, folder, file, save_image=Tru
         ax.axhline(y=settling_upper_bound, color='c', linestyle='--', label=f'{settling_percentage*100} % Bound', alpha=0.5)
         ax.axhline(y=settling_lower_bound, color='c', linestyle='--', alpha=0.5)
         ax.axvline(x=settling_time_abs, color='r', linestyle='--', label=f'{settling_percentage*100} % Settling Time', alpha=0.5)
+        
+    # Calculate the difference array
+    steering_difference = np.diff(steering_actual)
+
+    # Calculate the variance of the difference array
+    steering_variance = np.var(steering_difference)
 
     response_char = {    
         'target'             : target,
@@ -212,7 +218,8 @@ def analyze_system_response(file_data, DATA_FOLDER, folder, file, save_image=Tru
         'overshoot_print'    : overshoot_print,
         'overshoot_time'     : overshoot_time,
         'settling_time'      : settling_time,
-        'settling_percentage': settling_percentage
+        'settling_percentage': settling_percentage,
+        'steering_variance'  : steering_variance
     }
 
     if print_stats:
@@ -237,9 +244,9 @@ def analyze_system_response(file_data, DATA_FOLDER, folder, file, save_image=Tru
         # Save the image
         plt.savefig(output_filepath_png, dpi=500)
         
-        output_filepath_json  = f'{output_folder}/{output_file_name}.json'
-        with open(output_filepath_json, 'w', encoding='utf-8') as f:
-            json.dump(response_char, f, indent=4)
+    output_filepath_json  = f'{output_folder}/{output_file_name}.json'
+    with open(output_filepath_json, 'w', encoding='utf-8') as f:
+        json.dump(response_char, f, indent=4)
 
     # Close the plot to release resources
     plt.close(fig)
@@ -249,18 +256,15 @@ def analyze_system_response(file_data, DATA_FOLDER, folder, file, save_image=Tru
 
 def calculate_response_avg(response_char_list, DATA_FOLDER, folder, print=False):
     
-    
     type_of_test     =  DATA_FOLDER.split("\\")[-1]
     output_folder    = f'output/{type_of_test}/{folder}'
     output_filepath  = f'{output_folder}/sum.json'
     
-    topics_to_sum = ['rise_time', 'overshoot', 'settling_time']
-
     # Create a pandas DataFrame from the list of dictionaries
     df = pd.DataFrame(response_char_list)
 
     # Select the columns to sum
-    topics_to_sum = ['rise_time', 'overshoot', 'settling_time']
+    topics_to_sum = ['rise_time', 'overshoot', 'settling_time', 'steering_variance']
 
     # Calculate the sum while ignoring NaN values
     sums = df[topics_to_sum].sum(skipna=True)
@@ -297,7 +301,7 @@ def generate_periodicity_matrix(full_data, output_folder, generate_figure=True, 
     dspace_values = sorted(set(int(key.split('_')[3]) for key in full_data.keys()))
 
     # Create an empty 3D matrix
-    matrix = np.zeros((len(stm_values), len(dspace_values), 3))
+    matrix = np.zeros((len(stm_values), len(dspace_values), 4))
 
     # Populate the matrix
     for key, df in full_data.items():
@@ -306,12 +310,13 @@ def generate_periodicity_matrix(full_data, output_folder, generate_figure=True, 
         dspace_pos = dspace_values.index(dspace_idx)
         
         overshoot_percentage = (df['overshoot'] - 1) * 100  # Convert overshoot to percentage
-        matrix[stm_pos, dspace_pos, :] = [df['rise_time'], overshoot_percentage, df['settling_time']]
+        matrix[stm_pos, dspace_pos, :] = [df['rise_time'], overshoot_percentage, df['settling_time'], df['steering_variance']]
 
-    for i in range(0,3):
+    for i in range(0,4):
         
         # Choose the metric you want to plot: 0 - rise_time, 1 - overshoot, 2 - settling_time
         metric_to_plot = i
+        bar_label = 'Steering Variance' if metric_to_plot == 3 else 'Overshoot [%]' if metric_to_plot == 1 else 'Rise time [s]' if metric_to_plot == 0 else 'Settling time [s]'
 
         # Plot the matrix using a color gradient
         # viridis, coolwarm
@@ -324,20 +329,84 @@ def generate_periodicity_matrix(full_data, output_folder, generate_figure=True, 
         # Set the x and y axis labels
         plt.xlabel('dSPACE Periodicity [ms]')
         plt.ylabel('STM32 Periodicity [ms]')
-        plt.title('Periodicity Matrix')
+        plt.title(f'Periodicity Matrix - {bar_label}')
 
         # Invert the y-axis
         plt.gca().invert_yaxis()
 
         # Add a colorbar to show the color scale
-        plt.colorbar(label='Overshoot [%]' if metric_to_plot == 1 else 'Rise time [s]' if metric_to_plot == 0 else 'Settling time [s]')
+        
+        plt.colorbar(label=bar_label)
 
         # Display the plot
         if visual_mode:
             plt.show()
         else:
             # Save the image
-            type_of_matrix = 'overshoot' if metric_to_plot == 1 else 'rise_time' if metric_to_plot == 0 else 'settling_time'
+            type_of_matrix = 'steering_variance' if metric_to_plot == 3 else 'overshoot' if metric_to_plot == 1 else 'rise_time' if metric_to_plot == 0 else 'settling_time'
+            output_filepath = f'{output_folder}\\{type_of_matrix}.png'
+            plt.savefig(output_filepath, dpi=500)
+            
+        # Close the plot to release resources
+        plt.close()
+        
+    return matrix
+
+
+
+def generate_priority_matrix(full_data, output_folder, generate_figure=True, visual_mode=False):
+    
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder, exist_ok=True)
+    
+    # Extract unique values for stm and dspace
+    stm_values = sorted(set(int(key.split('_')[1]) for key in full_data.keys()))
+    vesc_values = sorted(set(int(key.split('_')[3]) for key in full_data.keys()))
+
+    # Create an empty 3D matrix
+    matrix = np.zeros((len(stm_values), len(vesc_values), 4))
+
+    # Populate the matrix
+    for key, df in full_data.items():
+        stm_idx, dspace_idx = [int(val) for val in key.split('_')[1::2]]
+        stm_pos = stm_values.index(stm_idx)
+        vesc_pos = vesc_values.index(dspace_idx)
+        
+        overshoot_percentage = (df['overshoot'] - 1) * 100  # Convert overshoot to percentage
+        matrix[stm_pos, vesc_pos, :] = [df['rise_time'], overshoot_percentage, df['settling_time'], df['steering_variance']]
+
+    for i in range(0,4):
+        
+        # Choose the metric you want to plot: 0 - rise_time, 1 - overshoot, 2 - settling_time
+        metric_to_plot = i
+        bar_label = 'Steering Variance' if metric_to_plot == 3 else 'Overshoot [%]' if metric_to_plot == 1 else 'Rise time [s]' if metric_to_plot == 0 else 'Settling time [s]'
+
+        # Plot the matrix using a color gradient
+        # viridis, coolwarm
+        plt.imshow(matrix[:, :, metric_to_plot], cmap='viridis', aspect='auto', vmin=0)
+
+        # Set the ticks and labels for the x and y axes
+        plt.xticks(range(len(vesc_values)), vesc_values)
+        plt.yticks(range(len(stm_values)), stm_values)
+
+        # Set the x and y axis labels
+        plt.xlabel('VESC Priority')
+        plt.ylabel('STM32 Priority')
+        plt.title(f'Periodicity Matrix - {bar_label}')
+
+        # Invert the y-axis
+        plt.gca().invert_yaxis()
+
+        # Add a colorbar to show the color scale
+        
+        plt.colorbar(label=bar_label)
+
+        # Display the plot
+        if visual_mode:
+            plt.show()
+        else:
+            # Save the image
+            type_of_matrix = 'steering_variance' if metric_to_plot == 3 else 'overshoot' if metric_to_plot == 1 else 'rise_time' if metric_to_plot == 0 else 'settling_time'
             output_filepath = f'{output_folder}\\{type_of_matrix}.png'
             plt.savefig(output_filepath, dpi=500)
             

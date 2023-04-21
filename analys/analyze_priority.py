@@ -21,7 +21,7 @@ overwrtie               = False
 
 
 ## Some CONFIG
-DATA_FOLDER = "C:\\Users\\carlv\\Documents\\carl\projects\\kex\\resultat\\CAN_RESPONSES\\periodicity"
+DATA_FOLDER = "C:\\Users\\carlv\\Documents\\carl\projects\\kex\\resultat\\CAN_RESPONSES\\prioritity"
 folders     = os.listdir(DATA_FOLDER)
 full_data = {}
 outer_loop = tqdm(range(len(folders)), desc="Outer loop", ncols=100)
@@ -35,6 +35,9 @@ for i in outer_loop:
     
     files_path = f'{DATA_FOLDER}\\{folder}'
     files = [file for file in os.listdir(files_path) if os.path.splitext(file)[1] == ".pkl"]
+    if files == []:
+        print(f"Empty folder: {folder}")
+        continue
 
     response_char_list = []
 
@@ -61,10 +64,14 @@ for i in outer_loop:
             full_data[folder] = response_avg
         except Exception as e:
             print(f"error: {e} | folder: {folder}")
+            
+output_folder = 'C:\\Users\\carlv\\Documents\\carl\projects\\kex\\analys\\output\\prioritity\\matrix'
+matrix = helper.generate_priority_matrix(full_data, output_folder, True, False)
+
 
 #%%
 
 
-%importlib.reload(helper)
-%response_char = helper.analyze_system_response(file_data, DATA_FOLDER, 'stm_500_dspace_500', 'CAN_RX_2023_04_19__15_23_46.pkl', True)
+#importlib.reload(helper)
+#response_char = helper.analyze_system_response(file_data, DATA_FOLDER, 'stm_500_dspace_500', 'CAN_RX_2023_04_19__15_23_46.pkl', True)
 

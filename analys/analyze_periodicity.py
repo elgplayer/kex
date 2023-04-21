@@ -15,10 +15,9 @@ importlib.reload(helper)
 plt.rcParams['figure.max_open_warning'] = 50
 
 ## Parameters ##
-generate_step_responses = True
+generate_step_responses = False
 calc_avg                = True
 overwrite               = False
-#%%
 
 ## Some CONFIG
 DATA_FOLDER = "C:\\Users\\carlv\\Documents\\carl\projects\\kex\\resultat\\CAN_RESPONSES\\periodicity"
@@ -67,7 +66,7 @@ for i in outer_loop:
 
 
 output_folder = 'C:\\Users\\carlv\\Documents\\carl\projects\\kex\\analys\\output\\periodicity\\matrix'
-matrix = helper.generate_periodicity_matrix(full_data, output_folder)
+matrix = helper.generate_periodicity_matrix(full_data, output_folder, True, False)
 
 #%%
 
@@ -77,13 +76,13 @@ matrix = helper.generate_periodicity_matrix(full_data, output_folder)
 
 
 
-#%%
-importlib.reload(helper)
-DATA_FOLDER = 'C:\\Users\\carlv\\Documents\\carl\projects\\kex\\resultat\\CAN_RESPONSES\\prioritity'
-folder  = 'stm_44_vesc_5'
-file = 'CAN_RX_2023_04_20__15_00_51.pkl'
-file_path = f'{DATA_FOLDER}\\{folder}\\{file}'
+# #%%
+# importlib.reload(helper)
+# DATA_FOLDER = 'C:\\Users\\carlv\\Documents\\carl\projects\\kex\\resultat\\CAN_RESPONSES\\prioritity'
+# folder  = 'stm_44_vesc_5'
+# file = 'CAN_RX_2023_04_20__15_00_51.pkl'
+# file_path = f'{DATA_FOLDER}\\{folder}\\{file}'
 
-with open(file_path, 'rb') as f:
-    file_data = pickle.load(f)
-response_char = helper.analyze_system_response(file_data, DATA_FOLDER, folder, file, True)
+# with open(file_path, 'rb') as f:
+#     file_data = pickle.load(f)
+# response_char = helper.analyze_system_response(file_data, DATA_FOLDER, folder, file, True)
