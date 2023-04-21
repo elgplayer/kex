@@ -118,7 +118,7 @@ def analyze_system_response(file_data, DATA_FOLDER, folder, file, save_image=Tru
 
     response_char = {}
     step_time_idx = np.argmax(np.diff(steering_target) > 0)
-    step_time     = np.argmax(combined_time == steering_target_time[step_time_idx]) # idx???
+    step_time     = steering_target_time[step_time_idx]
     initial_value = steering_target[step_time_idx-1]
     target        = steering_target[-1]
 
@@ -127,6 +127,8 @@ def analyze_system_response(file_data, DATA_FOLDER, folder, file, save_image=Tru
     # Now we are picking the last value before the step
     steering_actual_before_step_idx = np.argmin(steering_actual_time < steering_target_time[step_time_idx]) - 1
     steering_actual_before_step     = steering_actual[steering_actual_before_step_idx]
+    steering_actual_after_step_idx  = np.argmax(steering_actual_time > step_time)
+    
 
     # Determine the steady-state error (SSE)
     SSE = steering_actual_before_step - initial_value
@@ -139,8 +141,8 @@ def analyze_system_response(file_data, DATA_FOLDER, folder, file, save_image=Tru
     value_90_percent = initial_value + SSE + 0.9 * (final_value - (0 + SSE))
 
     # Identify the time it takes to reach the 10% and 90% values
-    time_10_percent = np.interp(value_10_percent, steering_actual[step_time_idx:], steering_actual_time[step_time_idx:])
-    time_90_percent = np.interp(value_90_percent, steering_actual[step_time_idx:], steering_actual_time[step_time_idx:])
+    time_10_percent = np.interp(value_10_percent, steering_actual[steering_actual_after_step_idx:], steering_actual_time[steering_actual_after_step_idx:])
+    time_90_percent = np.interp(value_90_percent, steering_actual[steering_actual_after_step_idx:], steering_actual_time[steering_actual_after_step_idx:])
 
     # Calculate the rise time
     rise_time = time_90_percent - time_10_percent
@@ -152,7 +154,7 @@ def analyze_system_response(file_data, DATA_FOLDER, folder, file, save_image=Tru
     overshoot_time  = 0
 
     if target > 0:
-        overshoot_value = np.max(steering_actual[step_time_idx:])
+        overshoot_value = np.max(steering_actual[steering_actual_after_step_idx:])
         overshoot_idx   = np.argmax(overshoot_value == steering_actual)
     elif target == 0:
         # Aviod divison by zero
@@ -179,7 +181,7 @@ def analyze_system_response(file_data, DATA_FOLDER, folder, file, save_image=Tru
 
     # Step 3: 
     # Define the settling percentage (commonly 2% or 5%)
-    settling_percentage = 0.1  # 2% settling
+    settling_percentage = 0.5  # 5% settling
 
     # Calculate the settling range
     settling_upper_bound = target * (1 + settling_percentage)
@@ -187,7 +189,7 @@ def analyze_system_response(file_data, DATA_FOLDER, folder, file, save_image=Tru
 
     # Identify the time it takes to reach the settling range and stay within it
     settling_time = None
-    for t, actual in zip(steering_actual_time[step_time_idx:], steering_actual[step_time_idx:]):
+    for t, actual in zip(steering_actual_time[steering_actual_after_step_idx:], steering_actual[steering_actual_after_step_idx:]):
         if settling_lower_bound <= actual <= settling_upper_bound:
             if settling_time is None:
                 settling_time_abs = t
@@ -264,7 +266,13 @@ def calculate_response_avg(response_char_list, DATA_FOLDER, folder, print=False)
     sums = df[topics_to_sum].sum(skipna=True)
 
     # Calculate the average by dividing the sums by the number of non-NaN values in each column
-    averages = sums / df[topics_to_sum].notna().sum()
+
+    try:
+        averages = sums / df[topics_to_sum].notna().sum()
+    except Exception as e:
+        print(f'Error: {e} | folder: {folder}')
+        averages_dict = {'ERROR': e}
+        return averages_dict
     
     if print:
         print(averages)
@@ -277,3 +285,63 @@ def calculate_response_avg(response_char_list, DATA_FOLDER, folder, print=False)
         json.dump(averages_dict, json_file, indent=4)
 
     return averages
+
+
+def generate_periodicity_matrix(full_data, output_folder, generate_figure=True, visual_mode=False):
+    
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder, exist_ok=True)
+    
+    # Extract unique values for stm and dspace
+    stm_values = sorted(set(int(key.split('_')[1]) for key in full_data.keys()))
+    dspace_values = sorted(set(int(key.split('_')[3]) for key in full_data.keys()))
+
+    # Create an empty 3D matrix
+    matrix = np.zeros((len(stm_values), len(dspace_values), 3))
+
+    # Populate the matrix
+    for key, df in full_data.items():
+        stm_idx, dspace_idx = [int(val) for val in key.split('_')[1::2]]
+        stm_pos = stm_values.index(stm_idx)
+        dspace_pos = dspace_values.index(dspace_idx)
+        
+        overshoot_percentage = (df['overshoot'] - 1) * 100  # Convert overshoot to percentage
+        matrix[stm_pos, dspace_pos, :] = [df['rise_time'], overshoot_percentage, df['settling_time']]
+
+    for i in range(0,3):
+        
+        # Choose the metric you want to plot: 0 - rise_time, 1 - overshoot, 2 - settling_time
+        metric_to_plot = i
+
+        # Plot the matrix using a color gradient
+        # viridis, coolwarm
+        plt.imshow(matrix[:, :, metric_to_plot], cmap='viridis', aspect='auto', vmin=0)
+
+        # Set the ticks and labels for the x and y axes
+        plt.xticks(range(len(dspace_values)), dspace_values)
+        plt.yticks(range(len(stm_values)), stm_values)
+
+        # Set the x and y axis labels
+        plt.xlabel('dSPACE Periodicity [ms]')
+        plt.ylabel('STM32 Periodicity [ms]')
+        plt.title('Periodicity Matrix')
+
+        # Invert the y-axis
+        plt.gca().invert_yaxis()
+
+        # Add a colorbar to show the color scale
+        plt.colorbar(label='Overshoot [%]' if metric_to_plot == 1 else 'Rise time [s]' if metric_to_plot == 0 else 'Settling time [s]')
+
+        # Display the plot
+        if visual_mode:
+            plt.show()
+        else:
+            # Save the image
+            type_of_matrix = 'overshoot' if metric_to_plot == 1 else 'rise_time' if metric_to_plot == 0 else 'settling_time'
+            output_filepath = f'{output_folder}\\{type_of_matrix}.png'
+            plt.savefig(output_filepath, dpi=500)
+            
+        # Close the plot to release resources
+        plt.close()
+        
+    return matrix
