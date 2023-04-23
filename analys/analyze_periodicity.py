@@ -41,7 +41,7 @@ matrix_config = {
     'bar_labels'      : bar_labels,
     'output_folder'   : matrix_output_folder,
     'save_image'      : True,
-    'visual_mode'     : False
+    'visual_mode'     : True
 }
 
 
@@ -74,61 +74,57 @@ for i in outer_loop:
             
             jitter = helper.calc_jitter(file_data, folder)
             if not stm_period in jitter_data:
-                jitter_data[stm_period] = jitter
+                jitter_data[folder] = jitter
             else:
-                jitter_data[stm_period] = np.concatenate((jitter_data[stm_period], jitter))
+                jitter_data[folder] = np.concatenate((jitter_data[folder], jitter))
 
     raw_data[folder] = response_char_list
     
-    # Add the response to a dicitonary where the avg value for all responses are calculated.
-    if calc_avg:
+#%%
+# matrix = helper.generate_matrix(avg_data, matrix_config)
+
+def flatten_list(input_list):
+    result = []
+    for item in input_list:
+        if isinstance(item, list):
+            result.extend(flatten_list(item))
+        else:
+            result.append(item)
+    return result
+
+importlib.reload(helper)
+if calc_avg:
+    response_char_dict = {}
+    for k,x in enumerate(raw_data):
+        y__idx, x__idx = [int(val) for val in x.split('_')[1::2]]
+        
+        if 'key_mapping' in matrix_config:
+            key_mapping = matrix_config['key_mapping']
+            x_idx_new = key_mapping['x'][x__idx]
+            y_idx_new = key_mapping['y'][y__idx]
+            folder = f'stm_{y_idx_new}_vesc_{x_idx_new}'
+        else:
+            folder = x
+            
+        # Save to folder
+        if folder not in response_char_dict:
+            response_char_dict[folder] = raw_data[x]
+
+    for k,folder in enumerate(response_char_dict):
+        print(folder, "len = ", len(response_char_dict[folder] ))
+        response_char_list = response_char_dict[folder]    
+        response_char_list = flatten_list(response_char_list)
+        
         response_avg = helper.calculate_response_avg(response_char_list, topics_to_sum, DATA_FOLDER, folder)
         avg_data[folder] = response_avg
+        
 
+            
+#%%
 
-# matrix = helper.generate_matrix(avg_data, matrix_config)
-#%%s
 importlib.reload(helper)
-# Calculate JITTER
-comb_dict = {}
-comb_data = []
-mean_data = []
-std_data = []
-labels =  []
 
-jitter_data = {key: jitter_data[key] for key in sorted(jitter_data)}
+#matrix = helper.generate_matrix(avg_data, matrix_config)
 
-for k,x in enumerate(jitter_data):
-    mean_data.append(np.mean(jitter_data[x])) 
-    std_data.append(np.std(jitter_data[x]))
-    print(f"STD for {x} ms - {np.std(jitter_data[x])}")
-    comb_data.append(jitter_data[x])
-    labels.append(x)
-    
-    # if k == 5:
-    #     break
-    
-# Create a boxplot of the data
-fig, ax = plt.subplots()
-ax.boxplot(comb_data, sym='')
+helper.plot_jitter(jitter_data, matrix_config, 90, True)
 
-# Set the title and labels
-ax.set_title('Jitter of STM')
-ax.set_xticklabels(labels, rotation=0)
-ax.set_ylabel('Time delay [ms]')
-ax.set_xlabel("Periodicty of STM [ms]")
-
-# Show the plot
-plt.show()
-
-
-# Create an error bar plot
-fig, ax = plt.subplots()
-ax.bar(labels, mean_data, yerr=std_data, capsize=5, align='center', alpha=0.6, ecolor='black')
-
-# Set the title and labels
-ax.set_title('Mean Values with Standard Deviation Error Bars')
-ax.set_ylabel('Value')
-
-# Show the plot
-plt.show()

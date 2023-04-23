@@ -286,9 +286,6 @@ def calculate_response_avg(response_char_list, topics_to_sum, DATA_FOLDER, folde
     
     # Convert the pandas Series to a dictionary
     averages_dict = averages.to_dict()
-    
-    
-
     # Save the dictionary as a JSON file
     with open(output_filepath, 'w') as json_file:
         json.dump(averages_dict, json_file, indent=4)
@@ -348,15 +345,15 @@ def generate_matrix(data, matrix_config):
 
         # Add a colorbar to show the color scale
         plt.colorbar(label=bar_label)
-
-        # Display the plot
-        if matrix_config['visual_mode']:
-            plt.show()
         
         if matrix_config['save_image']:
             # Save the image
             output_filepath = f"{output_folder}\\{matrix_config['metrics'][metric_to_plot]}.png"
             plt.savefig(output_filepath, dpi=500)
+        
+        # Display the plot
+        if matrix_config['visual_mode']:
+            plt.show()
             
         # Close the plot to release resources
         plt.close()
@@ -383,3 +380,68 @@ def calc_jitter(file_data, folder):
     time_diff = np.diff(time) * 1000 - stm_period
 
     return time_diff
+
+def plot_jitter(jitter_data, matrix_config, rotation=45, plot_outliers=True):
+    
+    output_folder = matrix_config['output_folder']
+
+    
+    # Calculate JITTER
+    comb_dict = {}
+    comb_data = []
+    labels =  []
+    
+    for k,x in enumerate(jitter_data):
+        
+        y__idx, x__idx = [int(val) for val in x.split('_')[1::2]]
+        
+        if 'key_mapping' in matrix_config:
+            x__idx =  matrix_config['key_mapping']['x'][x__idx]
+            y__idx =  matrix_config['key_mapping']['y'][y__idx]
+        
+        folder = f'stm_{y__idx}_vesc_{x__idx}'
+        
+        if folder not in comb_dict:
+            comb_dict[folder] = jitter_data[x]
+        else:
+            comb_dict[folder] = np.concatenate( (comb_dict[folder], jitter_data[x]) )  
+            
+
+    comb_dict = {key: comb_dict[key] for key in sorted(comb_dict)}
+    for k,x in enumerate(comb_dict):
+        
+        # print(f"STD for {x} ms - {np.std(comb_dict[x])}")
+        split_name = x.split("_")
+        if matrix_config['test_type'] == 'Prioritity':
+            label = f"{matrix_config['y_axis']}: {split_name[1]} % - {matrix_config['x_axis']}: {split_name[3]} %"
+        else:
+            label = f"{matrix_config['y_axis']}: {split_name[1]} - {matrix_config['x_axis']}: {split_name[3]}"
+        
+        comb_data.append(comb_dict[x])
+        labels.append(label)
+
+
+    # Create a boxplot of the data
+    fig, ax = plt.subplots(figsize=(12, 6))
+    if plot_outliers:
+        ax.boxplot(comb_data)
+    else:
+        ax.boxplot(comb_data, sym='')
+
+    # Set the title and labels
+    ax.set_title(f"Jitter of STM - {matrix_config['test_type']}")
+    ax.set_xticklabels(labels, rotation=rotation)
+    ax.set_ylabel('Time delay [ms]')
+    ax.set_xlabel(f"{matrix_config['test_type']} of {matrix_config['y_axis']} and {matrix_config['x_axis']}")
+    
+    if matrix_config['save_image']:
+        # Save the image
+        output_filepath = f"{output_folder}\\jitter_plot.png"
+        plt.savefig(output_filepath, dpi=500)
+        
+    # Display the plot
+    if matrix_config['visual_mode']:
+        plt.show()
+        
+    # Close the plot to release resources
+    plt.close()
