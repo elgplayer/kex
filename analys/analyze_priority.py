@@ -15,7 +15,7 @@ importlib.reload(helper)
 plt.rcParams['figure.max_open_warning'] = 50
 
 ## Parameters ##
-generate_step_responses = False
+generate_step_responses = True
 calc_avg                = True
 overwrite               = False
 
@@ -85,7 +85,7 @@ for i in outer_loop:
             # Get invidual response
             response_char = helper.analyze_system_response(file_data, DATA_FOLDER, folder, file, generate_step_responses, overwrite)
             response_char_list.append(response_char)
-            jitter = helper.calc_jitter(file_data, folder)
+            jitter = helper.calc_jitter(file_data, folder, matrix_config)
             if not stm_period in jitter_data:
                 jitter_data[folder] = jitter
             else:
@@ -124,7 +124,12 @@ if calc_avg:
 #%%
 
 importlib.reload(helper)
-#matrix = helper.generate_matrix(avg_data, matrix_config)
 
+plt.rcParams['font.size'] = 20
+matrix_config['save_image'] = True
+
+matrix = helper.generate_matrix(avg_data, matrix_config)
+
+plt.rcParams['font.size'] = 14
 helper.plot_jitter(jitter_data, matrix_config)
 

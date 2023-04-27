@@ -35,8 +35,8 @@ outer_loop = tqdm(range(len(folders)), desc="Outer loop", ncols=100)
 matrix_output_folder = 'C:\\Users\\carlv\\Documents\\carl\projects\\kex\\analys\\output\\periodicity\\matrix'
 matrix_config = {
     'test_type'       : 'Periodicity',
-    'x_axis'          : 'dSPACE Periodicity [ms]',
-    'y_axis'          : 'STM32 Periodicity [ms]',
+    'x_axis'          : 'dSPACE',
+    'y_axis'          : 'STM32',
     'metrics'         : topics_to_sum,
     'bar_labels'      : bar_labels,
     'output_folder'   : matrix_output_folder,
@@ -72,7 +72,7 @@ for i in outer_loop:
             response_char = helper.analyze_system_response(file_data, DATA_FOLDER, folder, file, generate_step_responses)
             response_char_list.append(response_char)
             
-            jitter = helper.calc_jitter(file_data, folder)
+            jitter = helper.calc_jitter(file_data, folder, matrix_config)
             if not stm_period in jitter_data:
                 jitter_data[folder] = jitter
             else:
@@ -111,7 +111,6 @@ if calc_avg:
             response_char_dict[folder] = raw_data[x]
 
     for k,folder in enumerate(response_char_dict):
-        print(folder, "len = ", len(response_char_dict[folder] ))
         response_char_list = response_char_dict[folder]    
         response_char_list = flatten_list(response_char_list)
         
@@ -124,7 +123,11 @@ if calc_avg:
 
 importlib.reload(helper)
 
-#matrix = helper.generate_matrix(avg_data, matrix_config)
 
+plt.rcParams['font.size'] = 20
+matrix_config['save_image'] = True
+matrix = helper.generate_matrix(avg_data, matrix_config)
+
+plt.rcParams['font.size'] = 14
 helper.plot_jitter(jitter_data, matrix_config, 90, True)
 

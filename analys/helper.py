@@ -80,7 +80,7 @@ def analyze_system_response(file_data, DATA_FOLDER, folder, file, save_image=Tru
     ### PLOT CONFIG ############
     ############################
 
-    plot_step_time       = False
+    plot_step_time       = True
     plot_overshoot       = False
     plot_settling_time   = False
     print_stats          = False
@@ -235,6 +235,8 @@ def analyze_system_response(file_data, DATA_FOLDER, folder, file, save_image=Tru
     # Create folders, the entire path
     if not os.path.exists(output_folder):
         os.makedirs(output_folder, exist_ok=True)
+        
+    plt.show()
 
     if save_image:
 
@@ -295,6 +297,8 @@ def calculate_response_avg(response_char_list, topics_to_sum, DATA_FOLDER, folde
 
 def generate_matrix(data, matrix_config):
     
+    
+    
     output_folder = matrix_config['output_folder']
     if not os.path.exists(output_folder):
         os.makedirs(output_folder, exist_ok=True)
@@ -320,8 +324,11 @@ def generate_matrix(data, matrix_config):
         x_values = [f"{value} %" for value in x_values]
         y_values = [f"{value} %" for value in y_values]
 
-
+    fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(14, 14))
+    
     for i,x in enumerate(matrix_config['bar_labels']):
+        
+        ix, iy = np.unravel_index(i, (2, 2))
         
         # Choose the metric you want to plot: 0 - rise_time, 1 - overshoot, 2 - settling_time
         metric_to_plot = i
@@ -329,44 +336,67 @@ def generate_matrix(data, matrix_config):
 
         # Plot the matrix using a color gradient
         # viridis, coolwarm
-        plt.imshow(matrix[:, :, metric_to_plot], cmap='viridis', aspect='auto', vmin=0)
+        img = axes[ix, iy].imshow(matrix[:, :, metric_to_plot], cmap='viridis', aspect='auto', vmin=0)
 
         # Set the ticks and labels for the x and y axes
-        plt.xticks(range(len(x_values)), x_values)
-        plt.yticks(range(len(y_values)), y_values)
+        axes[ix, iy].set_xticks( np.array(range(len(x_values))) )
+        axes[ix, iy].set_yticks( np.array(range(len(y_values))) )
+
+        axes[ix, iy].set_xticklabels(x_values)
+        axes[ix, iy].set_yticklabels(y_values)
 
         # Set the x and y axis labels
-        plt.xlabel(f"{matrix_config['x_axis']} {matrix_config['test_type']}")
-        plt.ylabel(f"{matrix_config['y_axis']} {matrix_config['test_type']}")
-        plt.title(f"{matrix_config['test_type']} Matrix - {bar_label}")
+        x_label = f"{matrix_config['x_axis']} {matrix_config['test_type']}"
+        y_label = f"{matrix_config['y_axis']} {matrix_config['test_type']}"
+        title   = f"{matrix_config['bar_labels'][i]}"
+        
+        # Add custom label
+        if matrix_config['test_type'] == 'Periodicity':
+            x_label += " [ms]"
+            y_label += " [ms]"
+        if matrix_config['test_type'] == 'Priority':
+            x_label += " %"
+            y_label += " %"
+        
+        axes[ix, iy].set_xlabel(x_label)
+        axes[ix, iy].set_ylabel(y_label)
+        axes[ix, iy].set_title(title)
 
         # Invert the y-axis
-        plt.gca().invert_yaxis()
+        axes[ix, iy].invert_yaxis()
 
         # Add a colorbar to show the color scale
-        plt.colorbar(label=bar_label)
+        cbar = plt.colorbar(img, ax=axes[ix, iy], label=bar_label)
+        # cbar.ax.set_ylabel('Label text', fontsize=14, labelpad=-45, rotation=270)
+        # cbar.ax.set_yticklabels(cbar.ax.get_yticklabels(), rotation=0, ha='left')
         
-        if matrix_config['save_image']:
-            # Save the image
-            output_filepath = f"{output_folder}\\{matrix_config['metrics'][metric_to_plot]}.png"
-            plt.savefig(output_filepath, dpi=500)
+    plt.tight_layout()
         
-        # Display the plot
-        if matrix_config['visual_mode']:
-            plt.show()
-            
-        # Close the plot to release resources
-        plt.close()
+    if matrix_config['save_image']:
+        # Save the image
+        output_filepath = f"{output_folder}\\matrix.png"
+        plt.savefig(output_filepath, dpi=500)
+    
+    # Display the plot
+    if matrix_config['visual_mode']:
+        plt.show()
+        
+    # Close the plot to release resources
+    plt.close(fig)
         
     return matrix
 
 
 
-def calc_jitter(file_data, folder):
+def calc_jitter(file_data, folder, matrix_config):
 
     split_folder  = folder.split("_")
-    stm_period    = 50
-    dspace_period = int(split_folder[3])
+    y_period    = 50
+    x_period = int(split_folder[3])
+    
+    # The priority is not fixed!
+    if matrix_config['test_type'] == 'Periodicity':
+        y_period = int(split_folder[1])
 
     # Extract the 'steering_angle_2' values from the list of dictionaries
     time                    = file_data['dcu_status_steering_brake']['time']
@@ -377,14 +407,17 @@ def calc_jitter(file_data, folder):
     time = np.array(time)
 
     # Compute the differences between consecutive time values
-    time_diff = np.diff(time) * 1000 - stm_period
+    if matrix_config['test_type'] == 'Prioritity':
+        time_diff = np.diff(time) * 1000 - y_period
+    
+    if matrix_config['test_type'] == 'Periodicity':
+        time_diff = y_period - np.diff(time) * 1000
 
     return time_diff
 
 def plot_jitter(jitter_data, matrix_config, rotation=45, plot_outliers=True):
     
     output_folder = matrix_config['output_folder']
-
     
     # Calculate JITTER
     comb_dict = {}
@@ -399,7 +432,8 @@ def plot_jitter(jitter_data, matrix_config, rotation=45, plot_outliers=True):
             x__idx =  matrix_config['key_mapping']['x'][x__idx]
             y__idx =  matrix_config['key_mapping']['y'][y__idx]
         
-        folder = f'stm_{y__idx}_vesc_{x__idx}'
+
+        folder = f"{matrix_config['y_axis']}_{y__idx}_{matrix_config['x_axis']}_{x__idx}"
         
         if folder not in comb_dict:
             comb_dict[folder] = jitter_data[x]
@@ -433,6 +467,8 @@ def plot_jitter(jitter_data, matrix_config, rotation=45, plot_outliers=True):
     ax.set_xticklabels(labels, rotation=rotation)
     ax.set_ylabel('Time delay [ms]')
     ax.set_xlabel(f"{matrix_config['test_type']} of {matrix_config['y_axis']} and {matrix_config['x_axis']}")
+    
+    plt.tight_layout()
     
     if matrix_config['save_image']:
         # Save the image
