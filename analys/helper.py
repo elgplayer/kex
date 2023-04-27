@@ -1,5 +1,6 @@
 
 import os
+import pickle
 import pprint
 import json
 
@@ -73,17 +74,27 @@ def plot_at_same_time_axis(t, t_dv_driving_dynamics_1, steering_actual, steering
     return fig, ax
 
 
-def analyze_system_response(file_data, DATA_FOLDER, folder, file, save_image=True, overwrite=False):
+def analyze_system_response(file_data, config):
     
     
     ############################
     ### PLOT CONFIG ############
     ############################
 
-    plot_step_time       = True
-    plot_overshoot       = False
-    plot_settling_time   = False
-    print_stats          = False
+    # config['']
+    # DATA_FOLDER, folder, file, save_image=True, overwrite=False
+
+    # plot_step_time       = True
+    # plot_overshoot       = False
+    # plot_settling_time   = False
+    # print_stats          = False
+    # type_of_test     =  DATA_FOLDER.split("\\")[-1]
+    # output_folder    = f'output/{type_of_test}/{folder}'
+    # output_file_name = file.split(".")[0]
+    
+    
+    output_folder = config['output_folder']
+    output_file_name   = config['output_file_name']
 
     ############################
     ############################
@@ -152,36 +163,36 @@ def analyze_system_response(file_data, DATA_FOLDER, folder, file, save_image=Tru
     overshoot_value = 0
     overshoot_idx   = 0
     overshoot_time  = 0
-
+    
     if target > 0:
         overshoot_value = np.max(steering_actual[steering_actual_after_step_idx:])
-        overshoot_idx   = np.argmax(overshoot_value == steering_actual)
+        overshoot_idx   = np.argmax(steering_actual[steering_actual_after_step_idx:])
     elif target == 0:
         # Aviod divison by zero
         print("Invalid target!")
         target = 1
-
+        
     overshoot = (overshoot_value / target)
     # Set to zero if we don't have a overshoot
     if overshoot < 0:
         overshoot       = 0
         overshoot_value = 0
     overshoot_print = str(round((overshoot - 1) * 100,2)) + " %"
-    overshoot_time = steering_actual_time[overshoot_idx]
+    overshoot_time = steering_actual_time[steering_actual_after_step_idx+overshoot_idx]
 
     # Add vertical lines for the 10% and 90% step times
-    if plot_step_time:
+    if config['plot_step_time']:
         ax.axvline(x=time_10_percent, color='r', linestyle='--', label='10% Step Time', alpha=0.5)
         ax.axvline(x=time_90_percent, color='g', linestyle='--', label='90% Step Time', alpha=0.5)
 
     # Plot the overshoot
-    if plot_overshoot:
+    if config['plot_overshoot']:
         ax.plot(overshoot_time, overshoot_value, 'xr', label='Overshoot Point')
         ax.axhline(overshoot_value, linestyle=':', color='b', alpha=0.5)
 
     # Step 3: 
     # Define the settling percentage (commonly 2% or 5%)
-    settling_percentage = 0.5  # 5% settling
+    settling_percentage = 0.05  # 5% settling
 
     # Calculate the settling range
     settling_upper_bound = target * (1 + settling_percentage)
@@ -197,7 +208,7 @@ def analyze_system_response(file_data, DATA_FOLDER, folder, file, save_image=Tru
         else:
             settling_time = None
 
-    if plot_settling_time and settling_time != None:
+    if config['plot_settling_time'] and settling_time != None:
         ax.axhline(y=settling_upper_bound, color='c', linestyle='--', label=f'{settling_percentage*100} % Bound', alpha=0.5)
         ax.axhline(y=settling_lower_bound, color='c', linestyle='--', alpha=0.5)
         ax.axvline(x=settling_time_abs, color='r', linestyle='--', label=f'{settling_percentage*100} % Settling Time', alpha=0.5)
@@ -222,34 +233,32 @@ def analyze_system_response(file_data, DATA_FOLDER, folder, file, save_image=Tru
         'steering_variance'  : steering_variance
     }
 
-    if print_stats:
+    if config['print_stats']:
         pprint.pprint(response_char)
 
-    ax.set_title(f'{folder} | {file}')
+    folder = output_folder.split("\\")[-1]
+    ax.set_title(f'{folder} | {output_file_name}')
     ax.legend(loc='best')
 
-    type_of_test     =  DATA_FOLDER.split("\\")[-1]
-    output_folder    = f'output/{type_of_test}/{folder}'
-    output_file_name = file.split(".")[0]
-
     # Create folders, the entire path
-    if not os.path.exists(output_folder):
-        os.makedirs(output_folder, exist_ok=True)
-        
-    plt.show()
+    if config['save_image']:
 
-    if save_image:
+        if not os.path.exists(output_folder):
+            os.makedirs(output_folder, exist_ok=True)
 
         # Save the plot to disk as an image file (PNG, JPG, SVG, etc.)
         output_filepath_png  = f'{output_folder}/{output_file_name}.png'
-        
-        if not os.path.exists(output_filepath_png) or overwrite:
-            # Save the image
+        if not os.path.exists(output_filepath_png) or config['overwrite']:
             plt.savefig(output_filepath_png, dpi=500)
+            
+        output_filepath_json  = f'{output_folder}/{output_file_name}.json'
+        with open(output_filepath_json, 'w', encoding='utf-8') as f:
+            json.dump(response_char, f, indent=4)
+
+            
+    if config['visual_mode']:
+        plt.show()       
         
-    output_filepath_json  = f'{output_folder}/{output_file_name}.json'
-    with open(output_filepath_json, 'w', encoding='utf-8') as f:
-        json.dump(response_char, f, indent=4)
 
     # Close the plot to release resources
     plt.close(fig)
@@ -279,7 +288,11 @@ def calculate_response_avg(response_char_list, topics_to_sum, DATA_FOLDER, folde
     try:
         averages = sums / df[topics_to_sum].notna().sum()
     except Exception as e:
+        
         print(f'Error: {e} | folder: {folder}')
+        
+        print(df)
+        print(df[topics_to_sum].notna())
         averages_dict = {'ERROR': e}
         return averages_dict
     
@@ -295,10 +308,8 @@ def calculate_response_avg(response_char_list, topics_to_sum, DATA_FOLDER, folde
     return averages
 
 
+
 def generate_matrix(data, matrix_config):
-    
-    
-    
     output_folder = matrix_config['output_folder']
     if not os.path.exists(output_folder):
         os.makedirs(output_folder, exist_ok=True)
@@ -481,3 +492,40 @@ def plot_jitter(jitter_data, matrix_config, rotation=45, plot_outliers=True):
         
     # Close the plot to release resources
     plt.close()
+    
+
+def list_files_recursively(path):
+    all_files = []
+    all
+    for root, dirs, files in os.walk(path):
+        for file in files:
+            if '.pkl' in file:
+                all_files.append(os.path.join(root, file))
+    return all_files
+
+def plot_step(selected_file_name, config):
+    
+    base_path = "C:\\Users\\carlv\\Documents\\carl\projects\\kex\\resultat\\CAN_RESPONSES"
+    folders = ['periodicity', 'prioritity', 'tracking']
+    files_dict = {}
+    
+    for folder in folders:
+        new_folder = f"{base_path}\\{folder}"
+        files = list_files_recursively(new_folder)
+        for file in files:
+            file_name = file.split("\\")[-1].split(".")[0]
+            if file_name not in files_dict:
+                files_dict[file_name] = file
+                
+    if selected_file_name not in files_dict:
+        print("File does not exists!")
+        return
+    
+    config['output_folder'] = ''
+    config['output_file_name'] = selected_file_name
+    
+    with open(files_dict[selected_file_name], 'rb') as f:
+        print(f"Loading: {selected_file_name}")
+        file_data = pickle.load(f)
+        analyze_system_response(file_data, config)
+                

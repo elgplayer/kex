@@ -32,14 +32,26 @@ jitter_data = {}
 outer_loop = tqdm(range(len(folders)), desc="Outer loop", ncols=100)
 
 
-matrix_output_folder = 'C:\\Users\\carlv\\Documents\\carl\projects\\kex\\analys\\output\\periodicity\\matrix'
+config = {
+    'output_folder'       : 'C:\\Users\\carlv\\Documents\\carl\projects\\kex\\analys\\output\\periodicity',
+    'output_file_name'    : 'None',
+    'plot_step_time'      : False,
+    'plot_overshoot'      : False,
+    'plot_settling_time'  : False,
+    'print_stats'         : False,
+    'save_image'          : True,
+    'visual_mode'         : False,
+    'overwrite'           : True
+}
+
+
 matrix_config = {
     'test_type'       : 'Periodicity',
     'x_axis'          : 'dSPACE',
     'y_axis'          : 'STM32',
     'metrics'         : topics_to_sum,
     'bar_labels'      : bar_labels,
-    'output_folder'   : matrix_output_folder,
+    'output_folder'   : 'C:\\Users\\carlv\\Documents\\carl\projects\\kex\\analys\\output\\periodicity\\matrix',
     'save_image'      : True,
     'visual_mode'     : True
 }
@@ -65,11 +77,13 @@ for i in outer_loop:
         
         file_path = f'{DATA_FOLDER}\\{folder}\\{file}'
         
+        config['output_folder'] = file
+        config['output_file_name'] = file
+        
         with open(file_path, 'rb') as f:
             
             file_data = pickle.load(f)
-            # Get invidual response
-            response_char = helper.analyze_system_response(file_data, DATA_FOLDER, folder, file, generate_step_responses)
+            response_char = helper.analyze_system_response(file_data, config)
             response_char_list.append(response_char)
             
             jitter = helper.calc_jitter(file_data, folder, matrix_config)
@@ -79,10 +93,7 @@ for i in outer_loop:
                 jitter_data[folder] = np.concatenate((jitter_data[folder], jitter))
 
     raw_data[folder] = response_char_list
-    
 #%%
-# matrix = helper.generate_matrix(avg_data, matrix_config)
-
 def flatten_list(input_list):
     result = []
     for item in input_list:
@@ -124,10 +135,10 @@ if calc_avg:
 importlib.reload(helper)
 
 
-plt.rcParams['font.size'] = 20
+plt.rcParams['font.size'] = 21
 matrix_config['save_image'] = True
 matrix = helper.generate_matrix(avg_data, matrix_config)
 
-plt.rcParams['font.size'] = 14
+plt.rcParams['font.size'] = 17
 helper.plot_jitter(jitter_data, matrix_config, 90, True)
 
